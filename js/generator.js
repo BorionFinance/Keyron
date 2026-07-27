@@ -1,45 +1,50 @@
-// generator.js — Gerador de senhas. Usa crypto.getRandomValues (gerador
-// criptograficamente seguro), nunca Math.random().
+const KeyronGenerator = (() => {
+  const LOWER = 'abcdefghijkmnopqrstuvwxyz';
+  const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const DIGITS = '23456789';
+  const SYMBOLS = '!@#$%&*+-_=?.';
 
-const BorionGenerator = (() => {
-  const SETS = {
-    lower: 'abcdefghijkmnopqrstuvwxyz', // sem "l" pra evitar confusão com "1"/"I"
-    upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ', // sem "I" e "O"
-    digits: '23456789', // sem 0 e 1
-    symbols: '!@#$%^&*()-_=+[]{}?'
-  };
+  function secureIndex(max) {
+    if (max <= 0) return 0;
+    const limit = Math.floor(0x100000000 / max) * max;
+    const buf = new Uint32Array(1);
+    do crypto.getRandomValues(buf); while (buf[0] >= limit);
+    return buf[0] % max;
+  }
 
-  function generate(opts = {}) {
-    const { length = 20, lower = true, upper = true, digits = true, symbols = true } = opts;
-
-    let pool = '';
-    if (lower) pool += SETS.lower;
-    if (upper) pool += SETS.upper;
-    if (digits) pool += SETS.digits;
-    if (symbols) pool += SETS.symbols;
-    if (!pool) pool = SETS.lower + SETS.digits;
-
-    const randomVals = crypto.getRandomValues(new Uint32Array(length));
-    let result = '';
-    for (let i = 0; i < length; i++) {
-      result += pool[randomVals[i] % pool.length];
+  function shuffle(chars) {
+    for (let i = chars.length - 1; i > 0; i -= 1) {
+      const j = secureIndex(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
     }
-    return result;
+    return chars;
   }
 
-  // Estimativa simples de força, só pra dar feedback visual no gerador/formulário.
+  function generate(length = 24) {
+    const size = Math.max(16, Math.min(128, Number(length) || 24));
+    const sets = [LOWER, UPPER, DIGITS, SYMBOLS];
+    const all = sets.join('');
+    const chars = sets.map((set) => set[secureIndex(set.length)]);
+    while (chars.length < size) chars.push(all[secureIndex(all.length)]);
+    return shuffle(chars).join('');
+  }
+
   function strength(password) {
-    if (!password) return 0;
-    let variety = 0;
-    if (/[a-z]/.test(password)) variety++;
-    if (/[A-Z]/.test(password)) variety++;
-    if (/[0-9]/.test(password)) variety++;
-    if (/[^a-zA-Z0-9]/.test(password)) variety++;
-    const lengthScore = Math.min(password.length / 24, 1);
-    return Math.round(((variety / 4) * 0.5 + lengthScore * 0.5) * 100);
+    const value = String(password || '');
+    if (!value) return 0;
+    let pool = 0;
+    if (/[a-z]/.test(value)) pool += 26;
+    if (/[A-Z]/.test(value)) pool += 26;
+    if (/\d/.test(value)) pool += 10;
+    if (/[^A-Za-z0-9]/.test(value)) pool += 32;
+    const entropy = pool ? value.length * Math.log2(pool) : 0;
+    const variety = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(value)).length;
+    let score = Math.min(100, Math.round(entropy * 0.95));
+    if (value.length < 12) score = Math.min(score, 38);
+    if (variety < 3) score = Math.min(score, 58);
+    if (/(.)\1{3,}/.test(value) || /1234|qwerty|senha|password/i.test(value)) score = Math.min(score, 28);
+    return score;
   }
 
-  return { generate, strength };
+  return Object.freeze({ generate, strength });
 })();
-
-if (typeof module !== 'undefined') module.exports = BorionGenerator;

@@ -1,60 +1,63 @@
-# Configuração — Borion Senhas
+# Keyron v0.2.0 — configuração do Google Drive
 
-Só falta uma coisa antes de usar: um **Client ID OAuth** do Google, pra o app poder
-pedir permissão de acessar (só) os arquivos que ele mesmo cria no seu Drive.
-Não precisa de API Key separada — o app fala com a Drive API usando o próprio
-token OAuth do login.
+O Keyron é um aplicativo estático. Não existe servidor próprio recebendo suas senhas. O navegador cifra o cofre e só então envia o arquivo cifrado ao seu Google Drive.
 
 ## 1. Criar o projeto no Google Cloud
 
-1. Acesse https://console.cloud.google.com/
-2. Crie um projeto novo (ex.: "Borion Senhas")
+1. Acesse o Google Cloud Console.
+2. Crie ou selecione um projeto dedicado ao Keyron.
+3. Em **APIs e serviços > Biblioteca**, ative a **Google Drive API**.
+4. Em **Tela de consentimento OAuth**, configure o aplicativo. Para uso pessoal, mantenha como teste e adicione seu próprio e-mail como usuário de teste.
+5. Em **Credenciais**, crie um **ID do cliente OAuth 2.0** do tipo **Aplicativo da Web**.
 
-## 2. Ativar a Drive API
+## 2. Informar as origens autorizadas
 
-1. Menu lateral → **APIs e serviços** → **Biblioteca**
-2. Busque **Google Drive API** → **Ativar**
+Em **Origens JavaScript autorizadas**, adicione exatamente os endereços onde o app será aberto. Exemplos:
 
-## 3. Configurar a tela de consentimento OAuth
+- `https://keyron.borionfinance.com.br`
+- `http://localhost:8000` para teste local
 
-1. **APIs e serviços** → **Tela de permissão OAuth**
-2. Tipo de usuário: **Externo**
-3. Preencha nome do app ("Borion Senhas"), e-mail de suporte e e-mail de contato
-   (pode usar o seu mesmo)
-4. Em **Escopos**, não precisa adicionar nada manualmente (o app já pede
-   `drive.file` diretamente)
-5. Em **Usuários de teste**, adicione seu próprio e-mail do Google
-   (enquanto o app não passa por verificação do Google, só e-mails cadastrados
-   aqui conseguem logar — perfeito pra uso pessoal, não precisa publicar)
+Não coloque caminhos como `/index.html` nessa lista.
 
-## 4. Criar o Client ID
+## 3. Inserir o Client ID
 
-1. **APIs e serviços** → **Credenciais** → **Criar credenciais** → **ID do cliente OAuth**
-2. Tipo de aplicativo: **Aplicativo da Web**
-3. Em **Origens JavaScript autorizadas**, adicione as URLs de onde o app vai rodar, por exemplo:
-   - `https://SEU-USUARIO.github.io` (seu GitHub Pages)
-   - `http://localhost:5500` (se quiser testar local, ajuste a porta do que você usar)
-4. Não precisa preencher "URIs de redirecionamento" — este fluxo não usa redirect
-5. Clique em **Criar** e copie o **Client ID** gerado (termina em `.apps.googleusercontent.com`)
-
-## 5. Colar no app
-
-Abra `js/config.js` e troque:
+Abra `js/config.js` e substitua:
 
 ```js
 GOOGLE_CLIENT_ID: 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com'
 ```
 
-pelo Client ID que você copiou.
+pelo Client ID gerado pelo Google.
 
-## 6. Publicar
+## 4. Publicar
 
-Suba a pasta inteira pro GitHub Pages, do jeito que você já faz com os outros
-apps da Constelação. Depois é só abrir o link, criar sua senha mestra e
-conectar o Drive.
+Publique todo o conteúdo desta pasta na raiz do site. O Keyron precisa ser servido por HTTPS para Web Crypto, PWA e autenticação funcionarem de forma confiável.
 
----
+Para teste local:
 
-**Nota de segurança:** o escopo usado é `drive.file`, o mais restrito que existe
-pra isso — o app só consegue ver/editar o próprio arquivo que ele cria
-(`borion-senhas-vault.json`), nunca o resto do seu Drive.
+```bash
+python -m http.server 8000
+```
+
+Depois abra `http://localhost:8000`.
+
+## Estrutura criada no Drive
+
+O app cria somente esta estrutura:
+
+```text
+Keyron/
+├── vault.keyron
+└── Backups/
+    └── <identificador-aleatorio>.keyron
+```
+
+O conteúdo de `vault.keyron` e dos snapshots é cifrado com AES-256-GCM. Nomes, tamanho e datas dos arquivos continuam sendo metadados visíveis ao Google Drive; o conteúdo do cofre, incluindo senhas, notas, categorias e logos, não é enviado em texto puro.
+
+## Importante sobre a senha mestra
+
+- Ela não é armazenada no navegador nem no Drive.
+- Ela não é enviada ao Google.
+- Ela é usada localmente com PBKDF2-HMAC-SHA-256 e 600.000 iterações para derivar a chave AES-256.
+- Não existe recuperação da senha mestra. Perder essa senha significa perder o acesso ao conteúdo cifrado.
+- Guarde um backup `.keyron` e a senha mestra em locais separados.

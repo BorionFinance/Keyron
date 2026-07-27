@@ -1,16 +1,18 @@
 {
-  "name": "Borion Senhas",
-  "short_name": "Borion Senhas",
-  "description": "Cofre de senhas cifrado, sincronizado pelo seu próprio Google Drive.",
+  "name": "Keyron — Cofre privado",
+  "short_name": "Keyron",
+  "description": "Cofre de credenciais com criptografia local e sincronização pelo seu próprio Google Drive.",
+  "id": "keyron-vault-v2",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#10141B",
-  "theme_color": "#10141B",
-  "orientation": "portrait-primary",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "orientation": "any",
+  "categories": ["security", "productivity", "utilities"],
   "icons": [
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

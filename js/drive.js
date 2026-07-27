@@ -3,7 +3,7 @@
 const KeyronDrive = (() => {
   const API = 'https://www.googleapis.com/drive/v3';
   const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-  const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+  const SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
   const ROOT_NAME = 'Keyron';
   const BACKUP_FOLDER_NAME = 'Backups';
   const VAULT_NAME = 'vault.keyron';
@@ -15,6 +15,7 @@ const KeyronDrive = (() => {
   let callbacks = { ready: null, error: null };
   let cachedStructure = null;
   let cachedRemoteBundle = null;
+  let currentUser = null;
 
   function isConnected() {
     return Boolean(accessToken) && Date.now() < tokenExpiresAt;
@@ -33,7 +34,9 @@ const KeyronDrive = (() => {
         }
         accessToken = response.access_token;
         tokenExpiresAt = Date.now() + (Number(response.expires_in || 3600) * 1000) - 60000;
-        callbacks.ready?.();
+        fetchCurrentUser()
+          .catch(() => null)
+          .finally(() => callbacks.ready?.(currentUser));
       },
       error_callback: (error) => callbacks.error?.(error?.type || 'Falha na janela de autenticação')
     });
@@ -44,6 +47,23 @@ const KeyronDrive = (() => {
     tokenClient.requestAccessToken({ prompt: forceAccountChoice ? 'select_account' : '' });
   }
 
+  async function fetchCurrentUser() {
+    if (!isConnected()) return null;
+    const response = await apiFetch('https://www.googleapis.com/oauth2/v3/userinfo', { cache: 'no-store' });
+    const profile = await response.json();
+    currentUser = {
+      id: profile.sub || '',
+      name: profile.name || profile.email || 'Conta Google',
+      email: profile.email || '',
+      picture: profile.picture || ''
+    };
+    return currentUser;
+  }
+
+  function getCurrentUser() {
+    return currentUser ? { ...currentUser } : null;
+  }
+
   function disconnect() {
     if (accessToken && window.google?.accounts?.oauth2) {
       google.accounts.oauth2.revoke(accessToken, () => {});
@@ -52,6 +72,7 @@ const KeyronDrive = (() => {
     tokenExpiresAt = 0;
     cachedStructure = null;
     cachedRemoteBundle = null;
+    currentUser = null;
   }
 
   async function apiFetch(url, options = {}) {
@@ -253,6 +274,7 @@ const KeyronDrive = (() => {
     connect,
     disconnect,
     isConnected,
+    getCurrentUser,
     loadBundle,
     saveBundle,
     createSnapshot,

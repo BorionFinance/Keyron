@@ -6,6 +6,7 @@
     key: null,
     vault: null,
     googleVerified: false,
+    googleUser: null,
     remoteInfo: null,
     needsInitialPush: false,
     accessMode: 'unlock',
@@ -128,7 +129,18 @@
   }
 
   function configured() {
-    return Boolean(KeyronConfig.GOOGLE_CLIENT_ID) && !KeyronConfig.GOOGLE_CLIENT_ID.startsWith('SEU_CLIENT_ID');
+    const clientId = String(KeyronConfig.GOOGLE_CLIENT_ID || '').trim();
+    return /^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(clientId);
+  }
+
+  function googleErrorMessage(message) {
+    const value = String(message || '').toLowerCase();
+    if (value.includes('popup_closed') || value.includes('popup closed')) return 'A janela do Google foi fechada antes da confirmação.';
+    if (value.includes('popup_failed_to_open') || value.includes('popup failed')) return 'O navegador bloqueou a janela do Google. Libere pop-ups para este site.';
+    if (value.includes('access_denied')) return 'O acesso foi recusado pela conta Google.';
+    if (value.includes('origin') || value.includes('redirect_uri_mismatch')) return `Este endereço ainda não está autorizado no Google Cloud: ${location.origin}`;
+    if (value.includes('invalid_client')) return 'O Client ID do Google não foi aceito. Confira a credencial OAuth do tipo Aplicativo da Web.';
+    return message || 'Falha na verificação do Google.';
   }
 
   function parseTime(bundle) {
@@ -197,9 +209,10 @@
         KeyronConfig.GOOGLE_CLIENT_ID,
         onGoogleVerified,
         (message) => {
+          const friendly = googleErrorMessage(message);
           el.googleBtn.disabled = false;
-          el.googleState.textContent = 'A verificação não foi concluída.';
-          toast(`Não foi possível verificar com o Google: ${message}`, 'error');
+          el.googleState.textContent = friendly;
+          toast(friendly, 'error', 6500);
         }
       );
       KeyronDrive.connect(forceAccountChoice);
@@ -211,10 +224,12 @@
     }
   }
 
-  async function onGoogleVerified() {
+  async function onGoogleVerified(profile) {
     state.googleVerified = true;
+    state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
     el.googleBtn.disabled = false;
-    el.googleState.textContent = 'Google verificado. Localizando seu cofre…';
+    const accountLabel = state.googleUser?.email ? `Google verificado: ${state.googleUser.email}.` : 'Google verificado.';
+    el.googleState.textContent = `${accountLabel} Localizando seu cofre…`;
     setBusy(true, 'Verificando o seu Drive…', 'O Keyron está procurando apenas os arquivos que ele próprio criou.');
 
     try {
@@ -418,6 +433,7 @@
     if (signOut) {
       KeyronDrive.disconnect();
       state.googleVerified = false;
+      state.googleUser = null;
       showGoogleStep();
       el.googleState.textContent = 'Aguardando verificação do Google.';
     } else if (state.googleVerified && KeyronDrive.isConnected()) {
@@ -471,9 +487,10 @@
       await waitForGoogleLibrary();
       KeyronDrive.init(
         KeyronConfig.GOOGLE_CLIENT_ID,
-        async () => {
+        async (profile) => {
           try {
             state.googleVerified = true;
+            state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
             const remote = await KeyronDrive.loadBundle();
             if (remote?.bundle && parseTime(remote.bundle) > parseTime(state.bundle)) {
               await KeyronStorage.saveRecovery(state.bundle).catch(() => null);
@@ -1141,7 +1158,7 @@
   }
 
   function bindEvents() {
-    el.googleBtn.addEventListener('click', () => startGoogleVerification(false));
+    el.googleBtn.addEventListener('click', () => startGoogleVerification(true));
     el.masterForm.addEventListener('submit', handleMasterSubmit);
     el.masterPassword.addEventListener('input', updateMasterStrength);
     el.toggleMaster.addEventListener('click', () => { el.masterPassword.type = el.masterPassword.type === 'password' ? 'text' : 'password'; });
@@ -1156,6 +1173,7 @@
       }
       KeyronDrive.disconnect();
       state.googleVerified = false;
+      state.googleUser = null;
       showGoogleStep();
     });
 

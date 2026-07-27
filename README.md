@@ -1,4 +1,4 @@
-# Keyron v0.2.0
+# Keyron v0.2.1
 
 Cofre pessoal de credenciais com autenticação Google, senha mestra e criptografia local antes da sincronização com o Drive.
 

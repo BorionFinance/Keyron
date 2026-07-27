@@ -1,4 +1,4 @@
-# Relatório de testes — Keyron v0.2.0
+# Relatório de testes — Keyron v0.2.1
 
 Data da revisão: 27/07/2026
 

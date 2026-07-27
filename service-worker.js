@@ -1,16 +1,15 @@
-const CACHE_NAME = 'keyron-shell-v0.2.0';
+const CACHE_NAME = 'keyron-shell-v0.2.1';
 const SHELL = [
   './',
   './index.html',
-  './css/style.css',
-  './js/config.js',
-  './js/crypto.js',
-  './js/storage.js',
-  './js/vault.js',
-  './js/generator.js',
-  './js/drive.js',
-  './js/app.js',
-  './manifest.json',
+  './css/style.css?v=0.2.1',
+  './js/crypto.js?v=0.2.1',
+  './js/storage.js?v=0.2.1',
+  './js/vault.js?v=0.2.1',
+  './js/generator.js?v=0.2.1',
+  './js/drive.js?v=0.2.1',
+  './js/app.js?v=0.2.1',
+  './manifest.json?v=0.2.1',
   './assets/keyron-logo.png',
   './assets/keyron-mark.png',
   './icons/icon-192.png',
@@ -30,23 +29,40 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (response.ok && !request.url.includes('/js/config.js')) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return (await caches.match(request)) || (await caches.match('./index.html'));
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) {
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(request, response.clone());
+  }
+  return response;
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached || caches.match('./index.html'));
-      return cached || network;
-    })
-  );
+  const isCodeOrDocument = event.request.mode === 'navigate' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('manifest.json');
+
+  event.respondWith(isCodeOrDocument ? networkFirst(event.request) : cacheFirst(event.request));
 });

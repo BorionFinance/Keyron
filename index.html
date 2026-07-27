@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Borion Senhas</title>
+<meta name="description" content="Cofre de senhas cifrado, sincronizado pelo seu próprio Google Drive." />
+<meta name="theme-color" content="#10141B" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Borion Senhas" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="toast-area" aria-live="polite"></div>
+
+<!-- ============ TELA DE BLOQUEIO ============ -->
+<section id="lock-screen" data-mode="unlock">
+  <div class="lock-card">
+    <div class="vault-door" aria-hidden="true">
+      <svg viewBox="0 0 200 200" class="dial">
+        <circle cx="100" cy="100" r="92" class="dial__ring" />
+        <circle cx="100" cy="100" r="70" class="dial__inner" />
+        <g class="dial__ticks">
+          <line x1="100" y1="14" x2="100" y2="30" />
+          <line x1="100" y1="170" x2="100" y2="186" />
+          <line x1="14" y1="100" x2="30" y2="100" />
+          <line x1="170" y1="100" x2="186" y2="100" />
+        </g>
+        <circle cx="100" cy="100" r="10" class="dial__hub" />
+      </svg>
+      <div id="vault-bolt" class="vault-bolt"></div>
+    </div>
+
+    <h1 id="lock-title">Cofre bloqueado</h1>
+    <p id="lock-subtitle" class="lock-subtitle">Digite sua senha mestra para abrir.</p>
+
+    <form id="lock-form" autocomplete="off">
+      <label class="field-label" for="master-password">Senha mestra</label>
+      <input type="password" id="master-password" autocomplete="current-password" required />
+
+      <div id="confirm-group" hidden>
+        <label class="field-label" for="master-password-confirm">Confirme a senha mestra</label>
+        <input type="password" id="master-password-confirm" autocomplete="new-password" />
+      </div>
+
+      <p id="lock-error" class="field-error" role="alert"></p>
+
+      <button type="submit" id="lock-submit" class="btn btn--primary btn--block">Abrir cofre</button>
+    </form>
+
+    <a href="#" id="forgot-link" class="text-link">Esqueci minha senha mestra</a>
+
+    <div class="drive-panel">
+      <button type="button" id="drive-connect-btn" class="btn btn--ghost btn--block">Conectar ao Google Drive</button>
+      <p id="drive-status" class="drive-status">Verificando…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TELA DO COFRE ============ -->
+<section id="app-screen" hidden>
+  <header class="app-header">
+    <div class="app-header__brand">
+      <span class="brand-mark" aria-hidden="true">◈</span>
+      <span class="brand-name">Borion Senhas</span>
+    </div>
+    <div class="app-header__search">
+      <input type="search" id="search-input" placeholder="Buscar por nome, usuário, site…" />
+    </div>
+    <div class="app-header__actions">
+      <span id="sync-indicator" class="sync-indicator"></span>
+      <button type="button" id="export-btn" class="icon-btn" title="Exportar backup cifrado">⭳</button>
+      <button type="button" id="lock-btn" class="icon-btn" title="Bloquear agora">🔒</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="empty-state" class="empty-state" hidden>
+      <div class="empty-state__icon" aria-hidden="true">🗝</div>
+      <p>Seu cofre está vazio. Adicione a primeira senha.</p>
+    </div>
+    <div id="entry-list" class="entry-list"></div>
+  </main>
+
+  <button type="button" id="add-entry-btn" class="fab" title="Adicionar senha">+</button>
+</section>
+
+<!-- ============ MODAL DE ENTRADA ============ -->
+<div id="modal-backdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-labelledby="modal-title">
+    <h2 id="modal-title">Nova senha</h2>
+    <form id="entry-form">
+      <label class="field-label" for="f-name">Nome</label>
+      <input type="text" id="f-name" placeholder="Ex.: Gmail, Netflix, Banco…" required />
+
+      <label class="field-label" for="f-username">Usuário</label>
+      <input type="text" id="f-username" autocomplete="off" />
+
+      <label class="field-label" for="f-email">E-mail</label>
+      <input type="email" id="f-email" autocomplete="off" />
+
+      <label class="field-label" for="f-password">Senha</label>
+      <div class="password-row">
+        <input type="password" id="f-password" autocomplete="new-password" />
+        <button type="button" id="toggle-pw-visibility" class="icon-btn" title="Mostrar/ocultar senha">👁</button>
+        <button type="button" id="generate-pw-btn" class="icon-btn" title="Gerar senha forte">🎲</button>
+      </div>
+      <div class="strength-track"><div id="strength-bar" class="strength-bar"></div></div>
+
+      <label class="field-label" for="f-totp">Anotação extra (opcional)</label>
+      <input type="text" id="f-totp" placeholder="Ex.: chave do autenticador, PIN, pergunta secreta…" autocomplete="off" />
+      <p class="field-hint">Campo de texto livre — só guarda a informação, não gera nem confere nenhum código.</p>
+
+      <label class="field-label" for="f-url">Site</label>
+      <input type="url" id="f-url" placeholder="https://" autocomplete="off" />
+
+      <label class="field-label" for="f-notes">Notas</label>
+      <textarea id="f-notes" rows="2"></textarea>
+
+      <div class="modal-actions">
+        <button type="button" id="delete-entry-btn" class="btn btn--danger" hidden>Apagar</button>
+        <div class="modal-actions__spacer"></div>
+        <button type="button" id="cancel-modal-btn" class="btn btn--ghost">Cancelar</button>
+        <button type="submit" class="btn btn--primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/crypto.js"></script>
+<script src="js/vault.js"></script>
+<script src="js/generator.js"></script>
+<script src="js/drive.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -5,5 +5,5 @@
 // só o token OAuth do usuário, sem precisar de uma API Key separada.
 
 const BorionConfig = {
-  GOOGLE_CLIENT_ID: 'SEU_CLIENT_ID_AQUI.apps.googleusercontent.com'
+    GOOGLE_CLIENT_ID: '946105310952-gp143h81mm3704lrq3877hsie49njgak.apps.googleusercontent.com'
 };

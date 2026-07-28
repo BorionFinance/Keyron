@@ -1,6 +1,6 @@
 const KeyronVault = (() => {
   const DEFAULT_COLUMNS = [
-    ['Bancos', '🏦'], ['Streaming', '▶️'], ['Jogos', '🎮'], ['Redes sociais', '🌐'], ['Trabalho', '💼'], ['Outros', '✦']
+    ['Bancos', '▣'], ['Streaming', '◆'], ['Jogos', '⬡'], ['Redes sociais', '◎'], ['Trabalho', '◈'], ['Outros', '✦']
   ];
   const DEFAULT_CATEGORIES = [
     ['Banco', '#2f8cff'], ['Streaming', '#a678ff'], ['Jogo', '#42c7b8'], ['Rede social', '#ff6f91'], ['E-mail', '#f4b95e'], ['Trabalho', '#7aa7ff'], ['Outro', '#8f9caf']
@@ -12,6 +12,21 @@ const KeyronVault = (() => {
   const ACTIVITY_TYPES = new Set(['entry', 'column', 'category', 'security']);
   const ACTIVITY_MAX = 200;
   const UNCATEGORIZED = '__uncategorized__';
+
+  // Cofres criados antes desta versão têm as gavetas padrão com emojis coloridos
+  // (inconsistentes entre plataformas). Ao normalizar, troca só esses ícones antigos
+  // exatos pelo novo símbolo geométrico equivalente — nomes/ícones escolhidos pelo
+  // usuário não são tocados.
+  const LEGACY_ICON_FIXES = {
+    'Bancos:🏦': '▣',
+    'Streaming:▶️': '◆',
+    'Jogos:🎮': '⬡',
+    'Redes sociais:🌐': '◎',
+    'Trabalho:💼': '◈'
+  };
+  function fixLegacyIcon(name, icon) {
+    return LEGACY_ICON_FIXES[`${name}:${icon}`] || icon;
+  }
 
   function emptyVault() {
     const columns = DEFAULT_COLUMNS.map(([name, icon], order) => ({ id: id(), name, icon, order, createdAt: now() }));
@@ -112,7 +127,7 @@ const KeyronVault = (() => {
       const columns = sourceColumns.map((column, index) => ({
         id: column?.id || id(),
         name: clean(column?.name, 50) || `Gaveta ${index + 1}`,
-        icon: clean(column?.icon, 8) || '◈',
+        icon: fixLegacyIcon(clean(column?.name, 50), clean(column?.icon, 8)) || '◈',
         order: index,
         createdAt: column?.createdAt || now()
       }));
@@ -278,6 +293,17 @@ const KeyronVault = (() => {
     touch(vault);
   }
 
+  function reorderColumn(vault, columnId, targetIndex) {
+    const index = vault.columns.findIndex((column) => column.id === columnId);
+    if (index < 0) return;
+    const clampedTarget = Math.max(0, Math.min(vault.columns.length - 1, targetIndex));
+    if (clampedTarget === index) return;
+    const [column] = vault.columns.splice(index, 1);
+    vault.columns.splice(clampedTarget, 0, column);
+    vault.columns.forEach((item, order) => { item.order = order; });
+    touch(vault);
+  }
+
   function addCategory(vault, name, color) {
     const normalizedName = clean(name, 40);
     if (!normalizedName) throw new Error('CATEGORY_NAME_REQUIRED');
@@ -323,7 +349,7 @@ const KeyronVault = (() => {
 
   return Object.freeze({
     emptyVault, normalize, normalizeOrders, addEntry, updateEntry, deleteEntry,
-    moveEntry, reorderEntry, addColumn, updateColumn, deleteColumn, moveColumn,
+    moveEntry, reorderEntry, addColumn, updateColumn, deleteColumn, moveColumn, reorderColumn,
     addCategory, deleteCategory, addActivity, setSecurityAudit, matches, UNCATEGORIZED
   });
 })();

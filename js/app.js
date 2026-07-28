@@ -32,6 +32,7 @@
     forceAccountChoiceNext: false,
     entryDialogScroll: null,
     draggingEntryId: null,
+    draggingColumnId: null,
     dragDropTarget: null,
     dragScrollFrame: null,
     dragScrollVelocity: { x: 0, y: 0 },
@@ -50,6 +51,7 @@
     googleStep: $('#google-step'),
     masterStep: $('#master-step'),
     googleBtn: $('#google-connect-btn'),
+    googleLoading: $('#google-loading'),
     googleState: $('#google-state'),
     masterTitle: $('#master-title'),
     masterSubtitle: $('#master-subtitle'),
@@ -323,6 +325,12 @@
     }
   }
 
+  function setGoogleLoading(loading) {
+    el.googleBtn.hidden = loading;
+    el.googleBtn.disabled = loading;
+    el.googleLoading.hidden = !loading;
+  }
+
   async function startGoogleVerification(forceAccountChoice = false) {
     if (!configured()) {
       el.googleState.textContent = 'Configure o Client ID em js/config.js antes de usar.';
@@ -330,7 +338,7 @@
       return;
     }
 
-    el.googleBtn.disabled = true;
+    setGoogleLoading(true);
     el.googleState.textContent = 'Abrindo a verificação segura do Google…';
     try {
       await waitForGoogleLibrary();
@@ -339,7 +347,7 @@
         onGoogleVerified,
         (message) => {
           const friendly = googleErrorMessage(message);
-          el.googleBtn.disabled = false;
+          setGoogleLoading(false);
           el.googleState.textContent = friendly;
           toast(friendly, 'error', 6500);
         }
@@ -347,7 +355,7 @@
       KeyronDrive.connect(forceAccountChoice);
     } catch (error) {
       console.error(error);
-      el.googleBtn.disabled = false;
+      setGoogleLoading(false);
       el.googleState.textContent = 'A biblioteca do Google não carregou. Confira a internet e tente novamente.';
       toast('A verificação do Google não pôde ser iniciada.', 'error');
     }
@@ -357,7 +365,9 @@
     state.googleVerified = true;
     state.forceAccountChoiceNext = false;
     state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
-    el.googleBtn.disabled = false;
+    // O indicador de carregamento continua no lugar do botão Enter até a tela de
+    // senha mestra aparecer (ou até dar erro) — reabilitar o botão aqui permitiria
+    // um segundo clique nesse meio-tempo, reabrindo o seletor de conta do Google.
     const accountLabel = state.googleUser?.email ? `Google verificado: ${state.googleUser.email}.` : 'Google verificado.';
     el.googleState.textContent = `${accountLabel} Localizando seu cofre…`;
     setBusy(true, 'Verificando o seu Drive…', 'O Keyron está procurando apenas os arquivos que ele próprio criou.');
@@ -377,6 +387,7 @@
         showMasterStep();
       } else {
         state.googleVerified = false;
+        setGoogleLoading(false);
         el.googleState.textContent = 'Não foi possível acessar a pasta do Keyron no Drive.';
         toast('Sem acesso ao Drive e sem cofre local. Tente verificar novamente.', 'error', 5200);
       }
@@ -393,6 +404,7 @@
     el.googleStep.hidden = false;
     el.masterStep.hidden = true;
     el.recoveryStep.hidden = true;
+    setGoogleLoading(false);
   }
 
   function prefersBiometricFirst() {
@@ -1174,6 +1186,8 @@
 
     const head = document.createElement('div');
     head.className = 'column-head';
+    head.draggable = true;
+    head.title = 'Arraste para reorganizar a gaveta';
     const collapseBtn = columnAction('', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
     collapseBtn.classList.add('column-collapse-btn');
     collapseBtn.setAttribute('aria-expanded', String(!isCollapsed));
@@ -1192,8 +1206,6 @@
     const actions = document.createElement('div');
     actions.className = 'column-actions';
     actions.append(
-      columnAction('←', 'column-left', 'Mover gaveta para a esquerda'),
-      columnAction('→', 'column-right', 'Mover gaveta para a direita'),
       columnAction('✎', 'column-edit', 'Editar gaveta'),
       columnAction('×', 'column-delete', 'Excluir gaveta')
     );
@@ -1261,6 +1273,7 @@
     button.dataset.action = action;
     button.title = title;
     button.textContent = label;
+    button.draggable = false;
     return button;
   }
 
@@ -1497,8 +1510,6 @@
     }
     try {
       if (action === 'column-edit') return openColumnDialog(columnId);
-      if (action === 'column-left') KeyronVault.moveColumn(state.vault, columnId, -1);
-      if (action === 'column-right') KeyronVault.moveColumn(state.vault, columnId, 1);
       if (action === 'column-delete') {
         const confirmed = await askConfirm({ title: 'Excluir gaveta', message: `Excluir a gaveta “${column.name}”? Ela precisa estar vazia.`, confirmLabel: 'Excluir', kind: 'danger', kicker: 'ORGANIZAÇÃO' });
         if (!confirmed) return;
@@ -1611,12 +1622,11 @@
   function openBreachFix(entryId) {
     el.settingsDialog.close();
     openEntryDialog(entryId);
-    toast('Nova senha forte gerada. Revise e salve para proteger essa credencial.', 'info', 5000);
+    toast('Essa é a senha exposta. Gere uma nova ou edite antes de salvar.', 'info', 5000);
     setTimeout(() => {
-      el.fPassword.value = KeyronGenerator.generate(24);
       setPasswordVisibility(el.fPassword, el.togglePassword, true);
-      updatePasswordStrength();
       el.fPassword.focus();
+      el.fPassword.select();
     }, 90);
   }
 
@@ -2205,11 +2215,15 @@
 
   function clearDragVisuals() {
     document.body.classList.remove('keyron-dragging');
+    document.body.classList.remove('keyron-dragging-column');
     $$('.credential-card.is-dragging').forEach((node) => node.classList.remove('is-dragging'));
     $$('.vault-column.is-dragover').forEach((node) => node.classList.remove('is-dragover'));
+    $$('.vault-column.is-dragging-column').forEach((node) => node.classList.remove('is-dragging-column'));
+    $$('.vault-column.is-dragover-column').forEach((node) => node.classList.remove('is-dragover-column'));
     $('.drop-indicator', el.board)?.remove();
     state.dragDropTarget = null;
     state.draggingEntryId = null;
+    state.draggingColumnId = null;
     state.dragScrollVelocity = { x: 0, y: 0 };
     if (state.dragScrollFrame) cancelAnimationFrame(state.dragScrollFrame);
     state.dragScrollFrame = null;
@@ -2352,19 +2366,38 @@
     el.board.addEventListener('click', handleBoardClick);
     el.board.addEventListener('dragstart', (event) => {
       const card = event.target.closest('.credential-card');
-      if (!card) return;
-      state.draggingEntryId = card.dataset.entryId;
-      state.dragDropTarget = null;
-      card.classList.add('is-dragging');
-      document.body.classList.add('keyron-dragging');
+      if (card) {
+        state.draggingEntryId = card.dataset.entryId;
+        state.dragDropTarget = null;
+        card.classList.add('is-dragging');
+        document.body.classList.add('keyron-dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('application/x-keyron-entry', card.dataset.entryId);
+        event.dataTransfer.setData('text/plain', card.dataset.entryId);
+        const rect = card.getBoundingClientRect();
+        event.dataTransfer.setDragImage(card, Math.min(event.clientX - rect.left, rect.width - 1), Math.min(event.clientY - rect.top, rect.height - 1));
+        return;
+      }
+      const head = event.target.closest('.column-head');
+      const column = head?.closest('.vault-column');
+      if (!column) return;
+      state.draggingColumnId = column.dataset.columnId;
+      column.classList.add('is-dragging-column');
+      document.body.classList.add('keyron-dragging-column');
       event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('application/x-keyron-entry', card.dataset.entryId);
-      event.dataTransfer.setData('text/plain', card.dataset.entryId);
-      const rect = card.getBoundingClientRect();
-      event.dataTransfer.setDragImage(card, Math.min(event.clientX - rect.left, rect.width - 1), Math.min(event.clientY - rect.top, rect.height - 1));
+      event.dataTransfer.setData('application/x-keyron-column', column.dataset.columnId);
+      event.dataTransfer.setData('text/plain', column.dataset.columnId);
     });
     el.board.addEventListener('dragend', clearDragVisuals);
     el.board.addEventListener('dragover', (event) => {
+      if (state.draggingColumnId) {
+        const column = event.target.closest('.vault-column');
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        $$('.vault-column.is-dragover-column').forEach((node) => { if (node !== column) node.classList.remove('is-dragover-column'); });
+        if (column && column.dataset.columnId !== state.draggingColumnId) column.classList.add('is-dragover-column');
+        return;
+      }
       const column = event.target.closest('.vault-column');
       if (!column || !state.draggingEntryId) return;
       event.preventDefault();
@@ -2376,9 +2409,25 @@
     });
     el.board.addEventListener('dragleave', (event) => {
       const column = event.target.closest('.vault-column');
-      if (column && !column.contains(event.relatedTarget)) column.classList.remove('is-dragover');
+      if (!column) return;
+      if (column.contains(event.relatedTarget)) return;
+      column.classList.remove('is-dragover');
+      column.classList.remove('is-dragover-column');
     });
     el.board.addEventListener('drop', async (event) => {
+      if (state.draggingColumnId) {
+        const column = event.target.closest('.vault-column');
+        event.preventDefault();
+        const draggedId = state.draggingColumnId;
+        clearDragVisuals();
+        if (!column || column.dataset.columnId === draggedId) return;
+        const targetIndex = state.vault.columns.findIndex((item) => item.id === column.dataset.columnId);
+        if (targetIndex < 0) return;
+        KeyronVault.reorderColumn(state.vault, draggedId, targetIndex);
+        await persistVault({ reason: 'column-reorder' });
+        renderBoard();
+        return;
+      }
       const column = event.target.closest('.vault-column');
       if (!column || !state.draggingEntryId) return;
       event.preventDefault();

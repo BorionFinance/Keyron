@@ -235,7 +235,18 @@ async function test(name, fn) {
     assert(Boolean(migrated.recoveryCode), 'migração não gerou chave de recuperação');
   });
 
-  console.log(`\n${passed}/14 testes de núcleo aprovados.`);
+  await test('Reordena gaveta por arraste para qualquer posição', () => {
+    const vault = KeyronVault.emptyVault();
+    const names = () => vault.columns.map((c) => c.name);
+    const original = names();
+    const dragged = vault.columns[0];
+    KeyronVault.reorderColumn(vault, dragged.id, 3);
+    const after = names();
+    assert(after[3] === original[0], `gaveta não caiu na posição solta: ${after}`);
+    assert(vault.columns.every((c, index) => c.order === index), 'order não foi reindexado após o arraste');
+  });
+
+  console.log(`\n${passed}/15 testes de núcleo aprovados.`);
 })().catch((error) => {
   console.error(`✗ ${error.message}`);
   process.exit(1);

@@ -1,8 +1,17 @@
-# Keyron v0.5.0
+# Keyron v0.6.0
 
 Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
 
 ## O que mudou nesta versão
+
+- Gavetas: os botões de mover (← →) saíram — agora é só arrastar o cabeçalho da gaveta para qualquer posição.
+- Ícones padrão das gavetas trocados de emojis coloridos para símbolos geométricos consistentes (migração automática também corrige gavetas já existentes com os ícones antigos).
+- Corrigido o real motivo do login com Google parecer travado por alguns segundos: o botão Enter era reabilitado antes da busca no Drive terminar, permitindo um clique duplo que reabria o seletor de conta. Agora vira um indicador de carregamento (bolinha azul-clara animada) até a tela de senha mestra aparecer.
+- Título "Meu Keyron" bem menos evidente.
+- Ordem dos botões do topo: Sincronizado, Bloqueio, Configurações, Hub Borion.
+- Logo do topo trocado pela versão só com a escrita "KEYRON", sem o ícone.
+- Verificador de senhas vazadas: "Alterar agora" passou a mostrar a senha exposta atual (visível, pronta pra revisar) em vez de já gerar uma senha nova por conta própria — a troca continua sendo escolha do usuário.
+- Som de bloqueio/desbloqueio bem mais grave, com zumbido de "sabre de luz" (camadas de dente de serra + sub-grave), em vez do assobio agudo da v0.5.0.
 
 - Chave de recuperação real: ao criar o cofre (ou migrar um cofre antigo), o Keyron gera um código de recuperação de alta entropia mostrado uma única vez. Com ele, dá para definir uma nova senha mestra sem perder nenhuma credencial, mesmo esquecendo a senha atual — sem perguntas pessoais e sem porta dos fundos.
 - Trocar a senha mestra agora só re-embrulha a chave de dados do cofre (muito mais rápido) e não invalida a chave de recuperação.

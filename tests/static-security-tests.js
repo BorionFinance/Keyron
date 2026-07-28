@@ -184,19 +184,30 @@ try {
   });
 
   test('PWA inclui módulo e interface de dispositivo confiável', () => {
-    assert(index.includes('js/offline-access.js?v=1.0.F'), 'script offline ausente no HTML');
-    assert(sw.includes("'./js/offline-access.js?v=1.0.F'"), 'script offline ausente no cache PWA');
+    assert(index.includes('js/offline-access.js?v=1.0.F-r2'), 'script offline ausente no HTML');
+    assert(sw.includes("'./js/offline-access.js?v=1.0.F-r2'"), 'script offline ausente no cache PWA');
     assert(index.includes('id="offline-access-section"'), 'configuração offline ausente');
     assert(index.includes('id="offline-access-banner"'), 'aviso de sessão offline ausente');
     assert(config.includes('OFFLINE_TRUST_DAYS: 30'), 'validade offline não configurada em 30 dias');
   });
 
-  test('Drive usa ETag e If-Match contra sobrescrita concorrente', () => {
-    assert(drive.includes("'If-Match': expectedEtag"), 'If-Match ausente');
+
+  test('Opção offline permanece visível e o PWA força o build corrigido', () => {
+    const offlinePos = index.indexOf('id="offline-access-section"');
+    const biometricPos = index.indexOf('id="biometric-section"');
+    assert(offlinePos > 0 && offlinePos < biometricPos, 'opção offline não está no topo de Segurança');
+    assert(index.includes('id="offline-access-unavailable"'), 'mensagem de incompatibilidade ausente');
+    assert(app.includes('el.offlineAccessSection.hidden = false'), 'interface offline pode sumir silenciosamente');
+    assert(sw.includes("keyron-shell-v1.0.F-r2"), 'cache corrigido não foi versionado');
+    assert(app.includes("service-worker.js?v=1.0.F-r2") && app.includes("updateViaCache: 'none'"), 'atualização forçada do PWA ausente');
+  });
+
+  test('Drive combina If-Match com preflight de linhagem e confirmação sem ETag', () => {
+    assert(drive.includes("headers['If-Match'] = expectedEtag"), 'If-Match condicional ausente');
     assert(drive.includes("response.status === 412 ? 'DRIVE_CONFLICT'"), '412 não tratado');
+    assert(drive.includes('bundleDescendsFrom') && drive.includes('DRIVE_CONFLICT_LINEAGE'), 'preflight de linhagem ausente');
+    assert(drive.includes('DRIVE_CONFLICT_CONFIRMATION'), 'leitura de confirmação sem ETag ausente');
     assert(app.includes('handleDriveConflict'), 'conflito não tratado no app');
-    assert(drive.includes('reloadBundle'), 'recarga remota ausente');
-    assert(drive.includes('DRIVE_ETAG_UNAVAILABLE'), 'ausência de ETag não falha fechado');
     assert(drive.includes('serializeBundle') && drive.includes('DRIVE_VAULT_TOO_LARGE'), 'limite de upload ausente');
   });
 
@@ -303,7 +314,7 @@ try {
     for (const icon of manifest.icons || []) assert(fs.existsSync(path.join(root, icon.src)), `ícone ausente: ${icon.src}`);
   });
 
-  console.log(`\n${passed}/37 testes estáticos de segurança aprovados.`);
+  console.log(`\n${passed}/38 testes estáticos de segurança aprovados.`);
 } catch (error) {
   console.error(`✗ ${error.message}`);
   process.exit(1);

@@ -40,7 +40,7 @@ Isso bloqueia alterações isoladas, mistura de partes de bundles, recolocação
 
 O vínculo usa o `permissionId` retornado pela API do Drive. O Client ID OAuth do frontend é público por definição; ele não é segredo. O token de acesso fica apenas em memória.
 
-O escopo é exatamente `https://www.googleapis.com/auth/drive.file`, limitando o aplicativo aos arquivos criados ou abertos por ele. Atualizações do arquivo principal exigem ETag e `If-Match`; se o ETag não estiver disponível, o Keyron falha fechado e não envia a sobrescrita.
+O escopo é exatamente `https://www.googleapis.com/auth/drive.file`, limitando o aplicativo aos arquivos criados ou abertos por ele. Quando o navegador expõe `ETag`, atualizações do arquivo principal usam `If-Match` e tratam HTTP 412 como conflito. Quando o Google Drive não expõe esse cabeçalho ao JavaScript, o Keyron relê o bundle remoto imediatamente antes do PATCH, exige que a versão local descenda da operação remota e relê o arquivo depois do envio para confirmar exatamente a mesma operação. Linhagens divergentes são bloqueadas antes da sobrescrita.
 
 Conflitos preservam a cópia local cifrada, tentam criar um snapshot de conflito no Drive e exigem novo desbloqueio da versão remota escolhida.
 

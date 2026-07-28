@@ -160,6 +160,7 @@
     offlineConfirmPassword: $('#offline-confirm-password'),
     offlineAccessEnableBtn: $('#offline-access-enable-btn'),
     offlineAccessError: $('#offline-access-error'),
+    offlineAccessUnavailable: $('#offline-access-unavailable'),
     offlineAccessActiveRow: $('#offline-access-active-row'),
     offlineAccessStatusText: $('#offline-access-status-text'),
     offlineAccessDetails: $('#offline-access-details'),
@@ -246,7 +247,17 @@
 
   function setSyncStatus(status, label) {
     el.syncChip.className = `sync-chip sync-chip--${status}`;
-    $('b', el.syncChip).textContent = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', trusted: 'Offline autorizado', error: 'Pendente' }[status] || status);
+    const text = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', trusted: 'Offline autorizado', error: 'Erro no Drive' }[status] || status);
+    $('b', el.syncChip).textContent = text;
+    el.syncChip.title = ({
+      saving: 'Cifrando e salvando neste dispositivo.',
+      pending: 'Salvo e cifrado localmente; aguardando confirmação do Drive.',
+      syncing: 'Comparando e enviando o cofre cifrado ao Google Drive.',
+      synced: 'Cofre cifrado confirmado no Google Drive.',
+      offline: 'Sem conexão com o Drive. Os dados permanecem cifrados neste dispositivo.',
+      trusted: 'Sessão offline autorizada. O Drive só será usado após verificar o Google.',
+      error: 'O Drive não confirmou a última alteração. Clique para tentar novamente.'
+    }[status] || 'Status da sincronização');
   }
 
   function askConfirm({ title = 'Confirmar ação', message = 'Deseja continuar?', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', kind = 'danger', kicker = 'CONFIRMAR AÇÃO' } = {}) {
@@ -2120,10 +2131,17 @@
   }
 
   async function refreshOfflineAccessSettingsUI() {
-    if (!el.offlineAccessSection || !state.bundle) return;
+    if (!el.offlineAccessSection) return;
+    // A opção nunca some silenciosamente: em navegadores incompatíveis o usuário
+    // vê a explicação em vez de concluir que o recurso não foi implementado.
+    el.offlineAccessSection.hidden = false;
     const available = Boolean(KeyronConfig.ALLOW_TRUSTED_OFFLINE_ACCESS !== false && globalThis.KeyronOfflineAccess?.supported?.());
-    el.offlineAccessSection.hidden = !available;
-    if (!available) return;
+    if (el.offlineAccessUnavailable) el.offlineAccessUnavailable.hidden = available;
+    if (!available || !state.bundle) {
+      el.offlineAccessEnableRow.hidden = true;
+      el.offlineAccessActiveRow.hidden = true;
+      return;
+    }
     if (!el.offlineDeviceLabel.value) el.offlineDeviceLabel.value = defaultDeviceLabel();
     const status = await KeyronOfflineAccess.status(state.bundle, KeyronSaveEngine.deviceId);
     const active = Boolean(status.authorized);
@@ -3184,7 +3202,9 @@
     if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js').catch((error) => console.warn('Service Worker:', error));
+      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r2', { updateViaCache: 'none' })
+        .then((registration) => registration.update().catch(() => null))
+        .catch((error) => console.warn('Service Worker:', error));
     }
   }
 

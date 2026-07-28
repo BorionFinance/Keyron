@@ -144,7 +144,7 @@ const KeyronDrive = (() => {
     return response.json();
   }
 
-  async function createMetadata(metadata, fields = 'id,name,mimeType,createdTime,modifiedTime,parents,appProperties') {
+  async function createMetadata(metadata, fields = 'id,name,mimeType,createdTime,modifiedTime,version,size,md5Checksum,parents,appProperties') {
     const response = await apiFetch(`${API}/files?fields=${encodeURIComponent(fields)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
@@ -166,7 +166,7 @@ const KeyronDrive = (() => {
     return serialized;
   }
 
-  async function createJsonFile(metadata, content, fields = 'id,name,createdTime,modifiedTime,parents,appProperties') {
+  async function createJsonFile(metadata, content, fields = 'id,name,createdTime,modifiedTime,version,size,md5Checksum,parents,appProperties') {
     const serialized = serializeBundle(content);
     const boundary = `keyron_${KeyronCrypto.randomId().replace(/[^a-z0-9]/gi, '')}`;
     const body =
@@ -183,18 +183,22 @@ const KeyronDrive = (() => {
 
   async function updateJsonFile(fileId, content, expectedEtag = null) {
     const serialized = serializeBundle(content);
-    if (!expectedEtag) {
-      const error = new Error('DRIVE_ETAG_UNAVAILABLE');
-      error.code = 'DRIVE_ETAG_UNAVAILABLE';
-      throw error;
-    }
-    const headers = { 'Content-Type': 'application/octet-stream', 'If-Match': expectedEtag };
-    const response = await apiFetch(`${UPLOAD}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id,name,modifiedTime`, {
+    const headers = { 'Content-Type': 'application/octet-stream' };
+    // Alguns navegadores não expõem o ETag do Google Drive ao JavaScript. Quando
+    // ele existe, mantemos a proteção atômica If-Match; quando não existe, a
+    // proteção passa a ser preflight de linhagem + leitura de confirmação.
+    if (expectedEtag) headers['If-Match'] = expectedEtag;
+    const response = await apiFetch(`${UPLOAD}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id,name,modifiedTime,version,size,md5Checksum`, {
       method: 'PATCH',
       headers,
       body: serialized
     }, { attempts: 3, timeoutMs: 30000 });
-    return { file: await response.json(), etag: response.headers.get('etag') || null };
+    const text = await response.text().catch(() => '');
+    let file = {};
+    if (text) {
+      try { file = JSON.parse(text); } catch { file = {}; }
+    }
+    return { file, etag: response.headers.get('etag') || null };
   }
 
   async function downloadJsonFile(fileId) {
@@ -208,6 +212,30 @@ const KeyronDrive = (() => {
     try { bundle = JSON.parse(text); } catch { throw new Error('DRIVE_INVALID_VAULT_FILE'); }
     try { KeyronCrypto.assertValidBundle(bundle); } catch { throw new Error('DRIVE_INVALID_VAULT_FILE'); }
     return { bundle, etag: response.headers.get('etag') || null };
+  }
+
+  function sameOperation(left, right) {
+    return Boolean(left?.operationId && right?.operationId && left.operationId === right.operationId);
+  }
+
+  function bundleDescendsFrom(candidate, ancestor) {
+    if (!candidate || !ancestor || candidate.vaultId !== ancestor.vaultId) return false;
+    if (sameOperation(candidate, ancestor)) return true;
+    if (Number(candidate.formatVersion || 0) >= 4 && Number(ancestor.formatVersion || 0) >= 4) {
+      return Boolean(ancestor.operationId && Array.isArray(candidate.ancestors) && candidate.ancestors.includes(ancestor.operationId));
+    }
+    return Number(candidate.revision || 0) >= Number(ancestor.revision || 0);
+  }
+
+  function driveConflict(message = 'DRIVE_CONFLICT') {
+    const error = new Error(message);
+    error.code = 'DRIVE_CONFLICT';
+    return error;
+  }
+
+  async function readRemoteForWrite(fileId) {
+    const downloaded = await downloadJsonFile(fileId);
+    return { bundle: downloaded.bundle, etag: downloaded.etag || null };
   }
 
   async function findOrCreateFolder({ name, parentId = null, role }) {
@@ -366,14 +394,39 @@ const KeyronDrive = (() => {
     const structure = await ensureStructure();
     if (!structure.vault) return createVaultFile(bundle);
 
-    await ensureCurrentEtag(structure);
-    const previousRemote = cachedRemoteBundle;
-    const updated = await updateJsonFile(structure.vault.id, bundle, cachedVaultEtag);
-    structure.vault = { ...structure.vault, ...updated.file };
-    cachedRemoteBundle = bundle;
-    cachedVaultEtag = updated.etag;
+    // Sempre releia o remoto imediatamente antes do PATCH. Isso permite detectar
+    // outro dispositivo mesmo quando o navegador não expõe ETag via CORS.
+    const beforeWrite = await readRemoteForWrite(structure.vault.id);
+    const previousRemote = beforeWrite.bundle;
+    const freshEtag = beforeWrite.etag || cachedVaultEtag || null;
 
-    if (automaticSnapshot && previousRemote) {
+    if (sameOperation(bundle, previousRemote)) {
+      cachedRemoteBundle = previousRemote;
+      cachedVaultEtag = freshEtag;
+      return structure.vault;
+    }
+    if (!bundleDescendsFrom(bundle, previousRemote)) {
+      throw driveConflict('DRIVE_CONFLICT_LINEAGE');
+    }
+
+    const updated = await updateJsonFile(structure.vault.id, bundle, freshEtag);
+    structure.vault = { ...structure.vault, ...updated.file };
+
+    let confirmedBundle = bundle;
+    let confirmedEtag = updated.etag || freshEtag || null;
+    // Sem ETag legível, confirme por leitura que o Drive recebeu exatamente a
+    // operação enviada. Falhar aqui mantém o WAL local e evita falso “sincronizado”.
+    if (!updated.etag) {
+      const confirmation = await readRemoteForWrite(structure.vault.id);
+      confirmedBundle = confirmation.bundle;
+      confirmedEtag = confirmation.etag || confirmedEtag;
+      if (!sameOperation(confirmedBundle, bundle)) throw driveConflict('DRIVE_CONFLICT_CONFIRMATION');
+    }
+
+    cachedRemoteBundle = confirmedBundle;
+    cachedVaultEtag = confirmedEtag;
+
+    if (automaticSnapshot && previousRemote && !sameOperation(previousRemote, bundle)) {
       shouldCreateAutomaticSnapshot()
         .then((needed) => needed && createSnapshot(previousRemote))
         .catch(() => null);

@@ -6,9 +6,9 @@ Cada rodada executa 98 verificações:
 
 - 15 testes de núcleo: criação, ordenação, migração, exclusão, AES-GCM, KDF, recuperação e reordenação de gavetas.
 - 25 testes dinâmicos de segurança: adulteração de conteúdo/metadados, vínculo de conta, KDF malicioso, Base64 inválido, linhagem, revisão regressiva, rollback de envelopes, recuperação, normalização e limites.
-- 7 testes do Drive com mocks: OAuth, `permissionId`, download validado, ETag, `If-Match`, conflito 412, troca de token, limite de upload e falha fechada sem ETag.
+- 8 testes do Drive com mocks: OAuth, `permissionId`, download validado, `ETag`/`If-Match`, conflito 412, troca de token, limite de upload, sincronização quando o navegador não expõe `ETag` e bloqueio de linhagem divergente antes do PATCH.
 - 14 testes do acesso offline: inscrição, HMAC não exportável, cópia sem chave, adulteração, conta e dispositivo divergentes, avanço de linhagem, concorrência, rollback, ramificação paralela, expiração, relógio regressivo e revogação.
-- 37 testes estáticos: sintaxe, referências, CSP, clickjacking, ausência de segredos, escopo OAuth, token em memória, criptografia, biometria, autorização offline, serialização entre abas, WAL, URLs, logos, importações, HIBP, bloqueio, BFCache, Service Worker, áudio e manifesto.
+- 38 testes estáticos: sintaxe, referências, CSP, clickjacking, ausência de segredos, escopo OAuth, token em memória, criptografia, biometria, autorização offline, serialização entre abas, WAL, URLs, logos, importações, HIBP, bloqueio, BFCache, Service Worker, áudio e manifesto.
 
 Execute uma rodada:
 
@@ -24,7 +24,7 @@ node tests/run-all.js 18
 
 ## Resultado da homologação
 
-Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Resultado: **1.764/1.764 verificações aprovadas**, sem falhas.
+Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Após a correção de interface/cache e sincronização sem `ETag`, a suíte completa foi executada novamente em 18 rodadas consecutivas. Resultado: **1.800/1.800 verificações aprovadas**, sem falhas.
 
 ## Casos específicos do modo offline
 
@@ -47,7 +47,7 @@ O ambiente isolado de empacotamento não autentica numa conta Google real e não
 
 - popup e consentimento reais do Google;
 - leitura e escrita reais do Google Drive;
-- presença real do ETag exposto ao navegador;
+- comportamento real dos cabeçalhos `ETag` no navegador e no domínio publicado; quando não exposto, a aplicação usa preflight de linhagem e leitura de confirmação;
 - instalação e atualização reais do Service Worker no computador e no celular;
 - persistência real da CryptoKey não exportável no navegador de cada aparelho;
 - autenticação de plataforma por digital, rosto ou PIN;

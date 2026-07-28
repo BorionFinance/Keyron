@@ -36,6 +36,7 @@ let newestBundle;
 let tokenCallback;
 let patchMode = 'conflict';
 let expectedEtag = '"etag-v1"';
+let exposeEtag = true;
 let patchHeaders = [];
 let listCalls = 0;
 
@@ -70,18 +71,22 @@ async function fetchMock(url, options = {}) {
     return new Response(body, { status: 200, headers: {
       'Content-Type': 'application/octet-stream',
       'Content-Length': String(Buffer.byteLength(body)),
-      ...(expectedEtag ? { ETag: expectedEtag } : {})
+      ...(exposeEtag && expectedEtag ? { ETag: expectedEtag } : {})
     } });
   }
   if (target.includes('/upload/drive/v3/files/vault-file-id') && method === 'PATCH') {
-    patchHeaders.push(headers.get('If-Match'));
-    if (headers.get('If-Match') !== expectedEtag) return new Response('wrong etag', { status: 412 });
+    const ifMatch = headers.get('If-Match');
+    patchHeaders.push(ifMatch);
+    if (ifMatch && ifMatch !== expectedEtag) return new Response('wrong etag', { status: 412 });
     if (patchMode === 'conflict') return new Response('precondition failed', { status: 412 });
     const body = JSON.parse(options.body);
     KeyronCrypto.assertValidBundle(body);
-    expectedEtag = patchMode === 'success-1' ? '"etag-v2"' : '"etag-v3"';
+    expectedEtag = patchMode === 'success-1' ? '"etag-v2"' : patchMode === 'success-2' ? '"etag-v3"' : '"etag-v4"';
     baseBundle = body;
-    return jsonResponse({ id: 'vault-file-id', name: 'vault.keyron', modifiedTime: new Date().toISOString() }, { headers: { ETag: expectedEtag } });
+    return jsonResponse(
+      { id: 'vault-file-id', name: 'vault.keyron', modifiedTime: new Date().toISOString(), version: '4' },
+      { headers: exposeEtag ? { ETag: expectedEtag } : {} }
+    );
   }
   throw new Error(`UNEXPECTED_FETCH ${method} ${target}`);
 }
@@ -185,21 +190,35 @@ async function test(name, fn) { await fn(); passed += 1; console.log(`✓ ${name
   });
 
 
-  await test('Drive sem ETag falha fechado em vez de sobrescrever', async () => {
+  await test('Drive sem ETag sincroniza com preflight de linhagem e leitura de confirmação', async () => {
     KeyronDrive.disconnect();
-    expectedEtag = null;
+    exposeEtag = false;
+    expectedEtag = '"etag-v3"';
+    patchMode = 'success-no-etag';
     await new Promise((resolve, reject) => {
       KeyronDrive.init('client-id.apps.googleusercontent.com', resolve, reject);
       KeyronDrive.connect(false);
     });
     await KeyronDrive.loadBundle();
-    let error;
-    try { await KeyronDrive.saveBundle(newestBundle, { automaticSnapshot: false }); } catch (caught) { error = caught; }
-    assert(error?.code === 'DRIVE_ETAG_UNAVAILABLE', `erro inesperado: ${error?.code}`);
-    expectedEtag = '"etag-v3"';
+    const laterBundle = await KeyronCrypto.updateBundle(created.key, newestBundle, vault, { deviceId: 'device-drive', saveReason: 'later-no-etag' });
+    await KeyronDrive.saveBundle(laterBundle, { automaticSnapshot: false });
+    assert(baseBundle.operationId === laterBundle.operationId, 'Drive não confirmou a operação sem ETag');
+    assert(patchHeaders.at(-1) === null, 'If-Match não deveria ser enviado sem ETag exposto');
   });
 
-  console.log(`\n${passed}/7 testes de Drive com mocks aprovados.`);
+  await test('Preflight bloqueia linhagens divergentes mesmo sem ETag', async () => {
+    const common = baseBundle;
+    const localCandidate = await KeyronCrypto.updateBundle(created.key, common, vault, { deviceId: 'device-local', saveReason: 'local-branch' });
+    const remoteDivergent = await KeyronCrypto.updateBundle(created.key, common, vault, { deviceId: 'device-remote', saveReason: 'remote-branch' });
+    baseBundle = remoteDivergent;
+    const beforePatches = patchHeaders.length;
+    let error;
+    try { await KeyronDrive.saveBundle(localCandidate, { automaticSnapshot: false }); } catch (caught) { error = caught; }
+    assert(error?.code === 'DRIVE_CONFLICT', `conflito inesperado: ${error?.code}`);
+    assert(patchHeaders.length === beforePatches, 'PATCH foi enviado apesar da divergência');
+  });
+
+  console.log(`\n${passed}/8 testes de Drive com mocks aprovados.`);
 })().catch((error) => {
   console.error(`✗ ${error.message}`);
   process.exit(1);

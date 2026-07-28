@@ -14,9 +14,14 @@ O Keyron é um cofre pessoal de credenciais em HTML, CSS e JavaScript puros. O c
 - Senha mestra e chave de recuperação usadas apenas para proteger a chave de dados.
 - Formato de cofre v4 com selo autenticado sobre conteúdo, envelopes de chave, conta proprietária, revisão e linhagem de operações.
 - Google Drive limitado ao escopo `drive.file`.
-- ETag + `If-Match` para impedir sobrescrita silenciosa entre dispositivos.
+- `ETag` + `If-Match` quando disponíveis; fallback seguro por preflight de linhagem e leitura de confirmação quando o navegador não expõe `ETag`.
 - WAL local cifrado para reduzir perda de alterações antes da confirmação remota.
 - Biometria local por WebAuthn/PRF quando o navegador e o dispositivo oferecem suporte.
+
+
+## Correção interna da v1.0.F
+
+A revisão de manutenção `r2` mantém o nome visível **v1.0.F**, mas troca o identificador interno do cache do PWA. Isso força a atualização de HTML, CSS e JavaScript e impede que uma instalação anterior continue mostrando a tela de Segurança sem o card de acesso offline.
 
 ## Acesso offline por dispositivo confiável
 

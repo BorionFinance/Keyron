@@ -107,6 +107,17 @@
     settingsDialog: $('#settings-dialog'),
     activityList: $('#activity-list'),
     activityEmpty: $('#activity-empty'),
+    cpForm: $('#change-password-form'),
+    cpCurrent: $('#cp-current'),
+    cpToggleCurrent: $('#cp-toggle-current'),
+    cpNew: $('#cp-new'),
+    cpToggleNew: $('#cp-toggle-new'),
+    cpConfirm: $('#cp-confirm'),
+    cpToggleConfirm: $('#cp-toggle-confirm'),
+    cpStrengthBar: $('#cp-strength-bar'),
+    cpStrengthLabel: $('#cp-strength-label'),
+    cpError: $('#cp-error'),
+    cpSubmit: $('#cp-submit'),
     biometricSection: $('#biometric-section'),
     biometricEnableRow: $('#biometric-enable-row'),
     biometricEnableError: $('#biometric-enable-error'),
@@ -121,6 +132,7 @@
     importBtn: $('#import-btn'),
     importInput: $('#import-input'),
     csvImportColumn: $('#csv-import-column'),
+    csvImportCategory: $('#csv-import-category'),
     csvImportBtn: $('#csv-import-btn'),
     csvImportInput: $('#csv-import-input'),
     importReviewDialog: $('#import-review-dialog'),
@@ -419,6 +431,95 @@
     el.masterStrengthBar.style.width = `${score}%`;
     el.masterStrengthBar.dataset.level = score >= 72 ? 'strong' : score >= 44 ? 'medium' : 'weak';
     el.masterStrengthLabel.textContent = score >= 72 ? 'Boa força. Guarde esta frase em um lugar seguro.' : score >= 44 ? 'Razoável, mas uma frase mais longa será melhor.' : 'Use pelo menos 12 caracteres, de preferência uma frase longa.';
+  }
+
+  function updateChangePasswordStrength() {
+    const score = KeyronGenerator.strength(el.cpNew.value);
+    el.cpStrengthBar.style.width = `${score}%`;
+    el.cpStrengthBar.dataset.level = score >= 72 ? 'strong' : score >= 44 ? 'medium' : 'weak';
+    el.cpStrengthLabel.textContent = score >= 72 ? 'Boa força. Guarde esta frase em um lugar seguro.' : score >= 44 ? 'Razoável, mas uma frase mais longa será melhor.' : 'Use pelo menos 12 caracteres, de preferência uma frase longa.';
+  }
+
+  async function handleChangePasswordSubmit(event) {
+    event.preventDefault();
+    const current = el.cpCurrent.value;
+    const next = el.cpNew.value;
+    const confirmValue = el.cpConfirm.value;
+    el.cpError.textContent = '';
+
+    if (!current || !next) {
+      el.cpError.textContent = 'Preencha a senha atual e a nova senha.';
+      return;
+    }
+    if (next.length < 12) {
+      el.cpError.textContent = 'A nova senha mestra precisa ter pelo menos 12 caracteres.';
+      return;
+    }
+    if (KeyronGenerator.strength(next) < 44) {
+      el.cpError.textContent = 'Essa nova senha ainda está fraca. Use uma frase maior e mais difícil de adivinhar.';
+      return;
+    }
+    if (next !== confirmValue) {
+      el.cpError.textContent = 'As duas senhas novas não são iguais.';
+      return;
+    }
+    if (next === current) {
+      el.cpError.textContent = 'A nova senha precisa ser diferente da atual.';
+      return;
+    }
+
+    el.cpSubmit.disabled = true;
+    try {
+      await KeyronCrypto.unlockBundle(current, state.bundle);
+    } catch {
+      el.cpError.textContent = 'Senha mestra atual incorreta.';
+      el.cpSubmit.disabled = false;
+      return;
+    }
+
+    await changeMasterPassword(next);
+    el.cpSubmit.disabled = false;
+  }
+
+  async function changeMasterPassword(newPassword) {
+    setBusy(true, 'Trocando a senha mestra…', 'Recriando a criptografia do cofre inteiro. Não feche o app.');
+    try {
+      const oldBundle = state.bundle;
+      const migrated = await KeyronCrypto.rekeyBundle(newPassword, state.vault, state.vault.id);
+      await KeyronStorage.saveRecovery(oldBundle).catch(() => null);
+      if (KeyronDrive.isConnected()) await KeyronDrive.createSnapshot(oldBundle).catch(() => null);
+
+      state.key = migrated.key;
+      state.bundle = migrated.bundle;
+      KeyronSaveEngine.initialize(state.bundle);
+      state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'password-change');
+      state.needsInitialPush = true;
+
+      const hadBiometric = await KeyronBiometric.hasRecord(state.vault.id);
+      if (hadBiometric) await KeyronBiometric.forget(state.vault.id);
+
+      el.cpForm.reset();
+      el.cpStrengthBar.style.width = '0%';
+      renderSettings();
+
+      try {
+        await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
+        await KeyronSaveEngine.confirmRemote(state.bundle);
+        state.needsInitialPush = false;
+        setSyncStatus('synced');
+        toast(hadBiometric ? 'Senha mestra trocada e sincronizada. A biometria foi desativada — reative se quiser.' : 'Senha mestra trocada e sincronizada no Drive.', 'success', 6000);
+      } catch (driveError) {
+        console.error(driveError);
+        setSyncStatus('error');
+        scheduleSyncRetry();
+        toast('Senha trocada neste dispositivo. O Drive será atualizado assim que a conexão responder — use a senha nova a partir de agora.', 'warning', 7000);
+      }
+    } catch (error) {
+      console.error(error);
+      el.cpError.textContent = 'Não foi possível trocar a senha mestra agora. Tente novamente.';
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleMasterSubmit(event) {
@@ -775,6 +876,16 @@
       button.append(dot, document.createTextNode(`${category.name} (${count})`));
       el.filterStrip.appendChild(button);
     }
+
+    const uncategorizedCount = state.vault.entries.filter((entry) => !entry.categoryId).length;
+    if (uncategorizedCount > 0) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `filter-chip filter-chip--uncategorized${state.activeCategoryId === KeyronVault.UNCATEGORIZED ? ' is-active' : ''}`;
+      button.dataset.categoryId = KeyronVault.UNCATEGORIZED;
+      button.textContent = `Sem categoria (${uncategorizedCount})`;
+      el.filterStrip.appendChild(button);
+    }
   }
 
   function renderBoard() {
@@ -845,7 +956,8 @@
 
     if (el.collapseAll) {
       const anyExpanded = state.vault.columns.some((c) => !state.collapsedColumns.has(c.id));
-      el.collapseAll.textContent = anyExpanded ? 'Retrair tudo' : 'Expandir tudo';
+      el.collapseAll.querySelector('.btn-icon').textContent = anyExpanded ? '▾' : '▸';
+      el.collapseAll.querySelector('.btn-label').textContent = anyExpanded ? 'Retrair tudo' : 'Expandir tudo';
       el.collapseAll.hidden = state.vault.columns.length < 2;
     }
   }
@@ -1152,6 +1264,7 @@
     renderActivity();
     refreshBiometricSettingsUI();
     populateCsvImportColumn();
+    el.cpError.textContent = '';
   }
 
   async function refreshBiometricSettingsUI() {
@@ -1367,6 +1480,20 @@
       option.selected = previous ? column.id === previous : index === state.vault.columns.length - 1;
       el.csvImportColumn.appendChild(option);
     });
+
+    const previousCategory = el.csvImportCategory.value;
+    el.csvImportCategory.replaceChildren();
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'Sem categoria';
+    el.csvImportCategory.appendChild(none);
+    state.vault.categories.forEach((category) => {
+      const option = document.createElement('option');
+      option.value = category.id;
+      option.textContent = category.name;
+      option.selected = category.id === previousCategory;
+      el.csvImportCategory.appendChild(option);
+    });
   }
 
   async function handleCsvFile(file) {
@@ -1393,7 +1520,7 @@
           conflicts.push({ existing, incoming: row, resolution: 'keep' });
         }
       }
-      state.pendingCsvImport = { toAdd, skipped, conflicts, targetColumnId: el.csvImportColumn.value };
+      state.pendingCsvImport = { toAdd, skipped, conflicts, targetColumnId: el.csvImportColumn.value, targetCategoryId: el.csvImportCategory.value };
       renderImportReview();
       el.importReviewDialog.showModal();
     } catch (error) {
@@ -1465,11 +1592,12 @@
     const plan = state.pendingCsvImport;
     if (!plan) return;
     const columnId = plan.targetColumnId && state.vault.columns.some((c) => c.id === plan.targetColumnId) ? plan.targetColumnId : state.vault.columns[state.vault.columns.length - 1].id;
+    const categoryId = plan.targetCategoryId && state.vault.categories.some((c) => c.id === plan.targetCategoryId) ? plan.targetCategoryId : null;
 
     let added = 0;
     let replaced = 0;
     for (const row of plan.toAdd) {
-      KeyronVault.addEntry(state.vault, { ...row, columnId });
+      KeyronVault.addEntry(state.vault, { ...row, columnId, categoryId });
       added += 1;
     }
     for (const conflict of plan.conflicts) {
@@ -1477,7 +1605,7 @@
         KeyronVault.updateEntry(state.vault, conflict.existing.id, { password: conflict.incoming.password, notes: conflict.incoming.notes || conflict.existing.notes });
         replaced += 1;
       } else if (conflict.resolution === 'both') {
-        KeyronVault.addEntry(state.vault, { ...conflict.incoming, columnId });
+        KeyronVault.addEntry(state.vault, { ...conflict.incoming, columnId, categoryId });
         added += 1;
       }
       // 'keep' não faz nada — a credencial atual permanece intacta.
@@ -1776,6 +1904,11 @@
     el.autoLock.addEventListener('change', savePreferences);
     el.clipboard.addEventListener('change', savePreferences);
     el.boardColumns.addEventListener('change', savePreferences);
+    el.cpForm.addEventListener('submit', handleChangePasswordSubmit);
+    el.cpNew.addEventListener('input', updateChangePasswordStrength);
+    el.cpToggleCurrent.addEventListener('click', () => togglePasswordVisibility(el.cpCurrent, el.cpToggleCurrent));
+    el.cpToggleNew.addEventListener('click', () => togglePasswordVisibility(el.cpNew, el.cpToggleNew));
+    el.cpToggleConfirm.addEventListener('click', () => togglePasswordVisibility(el.cpConfirm, el.cpToggleConfirm));
     el.exportBtn.addEventListener('click', exportBundle);
     el.importBtn.addEventListener('click', () => el.importInput.click());
     el.importInput.addEventListener('change', () => prepareImport(el.importInput.files?.[0]));
@@ -1831,6 +1964,9 @@
     bindEvents();
     setPasswordVisibility(el.masterPassword, el.toggleMaster, false);
     setPasswordVisibility(el.fPassword, el.togglePassword, false);
+    setPasswordVisibility(el.cpCurrent, el.cpToggleCurrent, false);
+    setPasswordVisibility(el.cpNew, el.cpToggleNew, false);
+    setPasswordVisibility(el.cpConfirm, el.cpToggleConfirm, false);
     const stored = await KeyronStorage.loadCurrent();
     const pending = await KeyronSaveEngine.loadPendingBundle();
     state.bundle = pending && parseTime(pending) >= parseTime(stored) ? pending : stored;

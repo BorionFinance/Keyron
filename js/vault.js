@@ -29,6 +29,7 @@ const KeyronVault = (() => {
 
   const ACTIVITY_TYPES = new Set(['entry', 'column', 'category']);
   const ACTIVITY_MAX = 200;
+  const UNCATEGORIZED = '__uncategorized__';
 
   function normalizeActivity(item) {
     return {
@@ -199,12 +200,16 @@ const KeyronVault = (() => {
   }
 
   function matches(entry, query, categoryId, categoriesById) {
-    if (categoryId && entry.categoryId !== categoryId) return false;
+    if (categoryId === UNCATEGORIZED) {
+      if (entry.categoryId) return false;
+    } else if (categoryId && entry.categoryId !== categoryId) {
+      return false;
+    }
     const q = clean(query, 200).toLocaleLowerCase('pt-BR');
     if (!q) return true;
     const category = categoriesById.get(entry.categoryId)?.name || '';
     return [entry.name, entry.username, entry.email, entry.url, entry.notes, entry.secret, category].some((value) => String(value || '').toLocaleLowerCase('pt-BR').includes(q));
   }
 
-  return Object.freeze({ emptyVault, normalize, addEntry, updateEntry, deleteEntry, moveEntry, addColumn, updateColumn, deleteColumn, moveColumn, addCategory, deleteCategory, addActivity, matches });
+  return Object.freeze({ emptyVault, normalize, addEntry, updateEntry, deleteEntry, moveEntry, addColumn, updateColumn, deleteColumn, moveColumn, addCategory, deleteCategory, addActivity, matches, UNCATEGORIZED });
 })();

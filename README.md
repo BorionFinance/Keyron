@@ -1,9 +1,11 @@
-# Keyron v0.6.2
+# Keyron v0.6.3
 
 Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
 
 ## O que mudou nesta versão
 
+- Removidos completamente os sons de bloqueio e desbloqueio; o Keyron agora funciona em silêncio.
+- Removida a tela intermediária “Verificando o seu Drive…” depois da escolha do e-mail. A mesma verificação cifrada continua acontecendo na tela de acesso, sem criar uma tela extra.
 - Gavetas: os botões de mover (← →) saíram — agora é só arrastar o cabeçalho da gaveta para qualquer posição.
 - Ícones padrão das gavetas trocados de emojis coloridos para símbolos geométricos consistentes (migração automática também corrige gavetas já existentes com os ícones antigos).
 - Corrigido o real motivo do login com Google parecer travado por alguns segundos: o botão Enter era reabilitado antes da busca no Drive terminar, permitindo um clique duplo que reabria o seletor de conta. Agora vira um indicador de carregamento (bolinha azul-clara animada) até a tela de senha mestra aparecer.
@@ -11,15 +13,13 @@ Cofre visual de credenciais com criptografia local, biometria por dispositivo e 
 - Ordem dos botões do topo: Sincronizado, Bloqueio, Configurações, Hub Borion.
 - Logo do topo trocado pela versão só com a escrita "KEYRON", sem o ícone.
 - Verificador de senhas vazadas: "Alterar agora" passou a mostrar a senha exposta atual (visível, pronta pra revisar) em vez de já gerar uma senha nova por conta própria — a troca continua sendo escolha do usuário.
-- Som de bloqueio/desbloqueio bem mais grave, com zumbido de "sabre de luz" (camadas de dente de serra + sub-grave), em vez do assobio agudo da v0.5.0.
-
 - Chave de recuperação real: ao criar o cofre (ou migrar um cofre antigo), o Keyron gera um código de recuperação de alta entropia mostrado uma única vez. Com ele, dá para definir uma nova senha mestra sem perder nenhuma credencial, mesmo esquecendo a senha atual — sem perguntas pessoais e sem porta dos fundos.
 - Trocar a senha mestra agora só re-embrulha a chave de dados do cofre (muito mais rápido) e não invalida a chave de recuperação.
 - Opção em Configurações → Segurança para gerar uma nova chave de recuperação quando quiser (invalida a anterior).
 - Correção do bug de notificação/toast aparecendo dentro do fluxo da página em vez de flutuar por cima.
 - Botão "Alterar agora" nas senhas encontradas em vazamentos, já abrindo a credencial com uma senha forte nova gerada.
 - Ícones das Configurações padronizados em SVG (sem emojis soltos).
-- Som e animação de bloqueio/desbloqueio sintetizados localmente (sem arquivo de áudio).
+- Animações visuais de bloqueio/desbloqueio mantidas, agora sem áudio.
 - Ícone instalável com fundo transparente.
 - Link para o Hub Borion no topo do app.
 - Splash de entrada suave e pulso azul contínuo nas telas de Entrar/Desbloquear.

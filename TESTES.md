@@ -1,4 +1,4 @@
-# Relatório de testes — Keyron v0.6.2
+# Relatório de testes — Keyron v0.6.3
 
 ## Testes automatizados de núcleo: 15/15 aprovados
 
@@ -24,10 +24,12 @@
 - Todos os IDs usados pelo `app.js` existem no HTML.
 - Nenhum ID duplicado no HTML.
 - Todos os scripts, estilos e recursos do Service Worker existem.
-- Cache do PWA atualizado para v0.6.2.
+- Cache do PWA atualizado para v0.6.3.
 - CSP contém o domínio do Pwned Passwords e continua restritiva.
 - Fluxo normal do Google não força seletor de conta; escopo reduzido a `drive.file`.
 - Nenhuma referência solta às antigas ações `column-left`/`column-right` (removidas).
+- Nenhuma API, módulo ou chamada de áudio restante no projeto.
+- O retorno do Google não aciona mais o overlay global “Verificando o seu Drive”; a leitura do bundle continua antes da tela de senha mestra.
 
 ## Testes que exigem ambiente externo
 

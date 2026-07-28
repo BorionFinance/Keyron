@@ -370,8 +370,6 @@
     // um segundo clique nesse meio-tempo, reabrindo o seletor de conta do Google.
     const accountLabel = state.googleUser?.email ? `Google verificado: ${state.googleUser.email}.` : 'Google verificado.';
     el.googleState.textContent = `${accountLabel} Localizando seu cofre…`;
-    setBusy(true, 'Verificando o seu Drive…', 'O Keyron está procurando apenas os arquivos que ele próprio criou.');
-
     try {
       state.remoteInfo = await KeyronDrive.loadBundle();
       state.bundle = await chooseBundle(state.remoteInfo);
@@ -391,8 +389,6 @@
         el.googleState.textContent = 'Não foi possível acessar a pasta do Keyron no Drive.';
         toast('Sem acesso ao Drive e sem cofre local. Tente verificar novamente.', 'error', 5200);
       }
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -903,7 +899,6 @@
     setTimeout(() => el.search.focus(), 180);
     setTimeout(() => scheduleWeeklyBreachCheck(), 1200);
 
-    KeyronSound.playUnlock();
     setTimeout(() => {
       const glyph = $('.lock-glyph', el.lockBtn);
       glyph?.classList.add('is-unlocking');
@@ -919,7 +914,6 @@
 
   function handleLockClick() {
     const glyph = $('.lock-glyph', el.lockBtn);
-    KeyronSound.playLock();
     glyph?.classList.remove('is-unlocking');
     glyph?.classList.add('is-locking');
     setTimeout(() => glyph?.classList.remove('is-locking'), 420);

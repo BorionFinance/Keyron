@@ -1,4 +1,4 @@
-# Configuração do Keyron v0.6.0
+# Configuração do Keyron v0.6.2
 
 ## 1. Google OAuth
 
@@ -40,7 +40,7 @@ Não há tarefa em servidor nem verificação com o cofre bloqueado. O aplicativ
 
 ## 4. Atualização da 0.3.9
 
-Substitua os arquivos publicados pelos arquivos da 0.6.0. O Service Worker usa um cache novo e remove o cache antigo na ativação.
+Substitua os arquivos publicados pelos arquivos da 0.6.2. O Service Worker usa um cache novo e remove o cache antigo na ativação.
 
 Ao desbloquear um cofre antigo, a migração para o schema 3 é automática. Ela adiciona a ordem interna das credenciais e a estrutura de auditoria sem alterar senhas, notas, logos ou categorias.
 

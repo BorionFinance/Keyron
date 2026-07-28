@@ -1,4 +1,4 @@
-# Keyron v0.6.0
+# Keyron v0.6.2
 
 Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
 

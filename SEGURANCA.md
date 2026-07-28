@@ -1,4 +1,4 @@
-# Segurança — Keyron v0.6.0
+# Segurança — Keyron v0.6.2
 
 ## Modelo do cofre
 

@@ -391,3 +391,6 @@ const KeyronOfflineAccess = (() => {
     MAX_TRUST_DAYS
   });
 })();
+
+// Exposição explícita para a interface. A API permanece congelada e não contém segredos.
+globalThis.KeyronOfflineAccess = KeyronOfflineAccess;

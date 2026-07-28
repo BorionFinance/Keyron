@@ -9,14 +9,14 @@
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=1.0.F-r2" />
+  <link rel="manifest" href="manifest.json?v=1.0.F-r4" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <script src="js/frame-guard.js?v=1.0.F-r2"></script>
-  <link rel="stylesheet" href="css/style.css?v=1.0.F-r2" />
+  <script src="js/frame-guard.js?v=1.0.F-r4"></script>
+  <link rel="stylesheet" href="css/style.css?v=1.0.F-r4" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -278,7 +278,7 @@
             <div id="offline-access-enable-row" class="offline-access-form">
               <input type="text" id="offline-device-label" maxlength="80" autocomplete="off" placeholder="Nome deste aparelho" />
               <input type="password" id="offline-confirm-password" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Confirme sua senha mestra" />
-              <button type="button" id="offline-access-enable-btn" class="btn btn--ghost">Autorizar acesso offline</button>
+              <button type="button" id="offline-access-enable-btn" class="btn btn--ghost">Autorizar este dispositivo por 30 dias</button>
             </div>
             <p id="offline-access-error" class="field-error"></p>
             <p id="offline-access-unavailable" class="field-error" hidden>Este navegador não disponibilizou o armazenamento seguro necessário para autorizar o modo offline.</p>
@@ -286,7 +286,7 @@
               <span class="verified-line"><span class="verified-check">✓</span> <span id="offline-access-status-text">Acesso offline autorizado</span></span>
               <small id="offline-access-details" class="fine-print"></small>
               <div class="button-row">
-                <button type="button" id="offline-access-refresh-btn" class="btn btn--ghost">Revalidar por 30 dias</button>
+                <button type="button" id="offline-access-refresh-btn" class="btn btn--ghost">Renovar este dispositivo por 30 dias</button>
                 <button type="button" id="offline-access-disable-btn" class="text-button text-button--danger">Remover deste aparelho</button>
               </div>
             </div>
@@ -457,17 +457,17 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=1.0.F-r2"></script>
-  <script src="js/crypto.js?v=1.0.F-r2"></script>
-  <script src="js/storage.js?v=1.0.F-r2"></script>
-  <script src="js/save-engine.js?v=1.0.F-r2"></script>
-  <script src="js/vault.js?v=1.0.F-r2"></script>
-  <script src="js/generator.js?v=1.0.F-r2"></script>
-  <script src="js/breach-check.js?v=1.0.F-r2"></script>
-  <script src="js/drive.js?v=1.0.F-r2"></script>
-  <script src="js/biometric.js?v=1.0.F-r2"></script>
-  <script src="js/offline-access.js?v=1.0.F-r2"></script>
+  <script src="js/config.js?v=1.0.F-r4"></script>
+  <script src="js/crypto.js?v=1.0.F-r4"></script>
+  <script src="js/storage.js?v=1.0.F-r4"></script>
+  <script src="js/save-engine.js?v=1.0.F-r4"></script>
+  <script src="js/vault.js?v=1.0.F-r4"></script>
+  <script src="js/generator.js?v=1.0.F-r4"></script>
+  <script src="js/breach-check.js?v=1.0.F-r4"></script>
+  <script src="js/drive.js?v=1.0.F-r4"></script>
+  <script src="js/biometric.js?v=1.0.F-r4"></script>
+  <script src="js/offline-access.js?v=1.0.F-r4"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=1.0.F-r2"></script>
+  <script src="js/app.js?v=1.0.F-r4"></script>
 </body>
 </html>

@@ -360,23 +360,6 @@
     }
   }
 
-  async function refreshExistingOfflineAuthorization() {
-    if (!state.googleVerified || !state.bundle?.ownerBinding || !globalThis.KeyronOfflineAccess?.supported?.()) return null;
-    try {
-      const refreshed = await KeyronOfflineAccess.refresh({
-        vaultId: state.bundle.vaultId,
-        ownerBinding: state.bundle.ownerBinding,
-        deviceId: KeyronSaveEngine.deviceId,
-        operationId: state.bundle.operationId,
-        revision: Number(state.bundle.revision),
-        trustDays: KeyronConfig.OFFLINE_TRUST_DAYS
-      });
-      state.offlineAuthorization = refreshed;
-      return refreshed;
-    } catch {
-      return null;
-    }
-  }
 
   function safeEncryptedBundle(value) {
     if (!value) return null;
@@ -1144,7 +1127,6 @@
       KeyronSaveEngine.initialize(state.bundle);
       state.failedAttempts = 0;
       el.masterError.textContent = '';
-      if (state.googleVerified) await refreshExistingOfflineAuthorization();
       openApplication();
       if (state.needsInitialPush && state.googleVerified) scheduleDriveSync(50);
     } catch (error) {
@@ -3202,7 +3184,7 @@
     if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r2', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r4', { updateViaCache: 'none' })
         .then((registration) => registration.update().catch(() => null))
         .catch((error) => console.warn('Service Worker:', error));
     }

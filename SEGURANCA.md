@@ -58,7 +58,7 @@ A autorização local contém somente metadados de vínculo e uma prova HMAC. Os
 
 A chave é HMAC-SHA-256 de 256 bits, gerada com Web Crypto como `extractable: false` e usos restritos a `sign` e `verify`. Ela fica em um banco IndexedDB separado e não é exportada para o bundle, Drive, backup ou CSV. Copiar somente o arquivo `.keyron`, o WAL ou o armazenamento principal não cria uma autorização offline em outro navegador.
 
-A validade máxima é de 30 dias. A autorização é renovada depois de um desbloqueio online válido ou pelo botão de revalidação. Um retrocesso do relógio acima da tolerância de cinco minutos falha fechado. A autorização também mantém uma âncora da operação/revisão aceita; o bundle atual precisa ser exatamente aquela operação ou um descendente autenticado, nunca uma revisão anterior ou uma ramificação paralela.
+A validade máxima é de 30 dias. A autorização não é criada nem renovada durante o login comum. Para iniciar ou reiniciar os 30 dias, o usuário precisa usar o botão explícito nas configurações e confirmar a senha mestra com o Google conectado. Um retrocesso do relógio acima da tolerância de cinco minutos falha fechado. A autorização também mantém uma âncora da operação/revisão aceita; o bundle atual precisa ser exatamente aquela operação ou um descendente autenticado, nunca uma revisão anterior ou uma ramificação paralela.
 
 Atualizações dessa âncora são serializadas com Web Locks entre abas quando disponíveis e com fila local como fallback. Isso evita que salvamentos concorrentes rebaixem o registro para uma operação antiga.
 

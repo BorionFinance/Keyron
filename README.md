@@ -21,7 +21,7 @@ O Keyron é um cofre pessoal de credenciais em HTML, CSS e JavaScript puros. O c
 
 ## Correção interna da v1.0.F
 
-A revisão de manutenção `r2` mantém o nome visível **v1.0.F**, mas troca o identificador interno do cache do PWA. Isso força a atualização de HTML, CSS e JavaScript e impede que uma instalação anterior continue mostrando a tela de Segurança sem o card de acesso offline.
+A revisão de manutenção `r4` mantém o nome visível **v1.0.F**, mas troca o identificador interno do cache do PWA. Isso força a atualização de HTML, CSS e JavaScript e impede que uma instalação anterior continue mostrando a tela de Segurança sem o card de acesso offline.
 
 ## Acesso offline por dispositivo confiável
 
@@ -29,9 +29,9 @@ O modo offline não é habilitado automaticamente. Em cada aparelho pessoal:
 
 1. entre normalmente com o Google;
 2. abra **Configurações → Segurança → Acesso offline neste aparelho**;
-3. dê um nome ao dispositivo, confirme a senha mestra e selecione **Autorizar acesso offline**.
+3. dê um nome ao dispositivo, confirme a senha mestra e selecione **Autorizar este dispositivo por 30 dias**.
 
-A autorização vale por até 30 dias e é renovada após um desbloqueio online válido. Ela fica vinculada ao cofre, à conta proprietária, ao identificador local do aparelho e à linhagem autenticada da versão cifrada. A prova usa uma chave HMAC-SHA-256 não exportável guardada em um IndexedDB separado; essa chave não vai para o Drive nem para backups do cofre.
+A autorização vale por até 30 dias e não é criada nem renovada ao entrar normalmente. A renovação exige o botão **Renovar este dispositivo por 30 dias**. Ela fica vinculada ao cofre, à conta proprietária, ao identificador local do aparelho e à linhagem autenticada da versão cifrada. A prova usa uma chave HMAC-SHA-256 não exportável guardada em um IndexedDB separado; essa chave não vai para o Drive nem para backups do cofre.
 
 Sem internet ou quando a biblioteca do Google estiver indisponível, um aparelho autorizado pode abrir a cópia cifrada local usando a senha mestra ou a biometria já configurada. Alterações feitas offline continuam sendo cifradas e entram no WAL local. O Drive só volta a ser consultado ou atualizado depois de uma nova verificação Google, quando o Keyron compara a linhagem antes de sincronizar.
 

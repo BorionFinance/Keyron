@@ -184,8 +184,8 @@ try {
   });
 
   test('PWA inclui módulo e interface de dispositivo confiável', () => {
-    assert(index.includes('js/offline-access.js?v=1.0.F-r2'), 'script offline ausente no HTML');
-    assert(sw.includes("'./js/offline-access.js?v=1.0.F-r2'"), 'script offline ausente no cache PWA');
+    assert(index.includes('js/offline-access.js?v=1.0.F-r4'), 'script offline ausente no HTML');
+    assert(sw.includes("'./js/offline-access.js?v=1.0.F-r4'"), 'script offline ausente no cache PWA');
     assert(index.includes('id="offline-access-section"'), 'configuração offline ausente');
     assert(index.includes('id="offline-access-banner"'), 'aviso de sessão offline ausente');
     assert(config.includes('OFFLINE_TRUST_DAYS: 30'), 'validade offline não configurada em 30 dias');
@@ -197,9 +197,15 @@ try {
     const biometricPos = index.indexOf('id="biometric-section"');
     assert(offlinePos > 0 && offlinePos < biometricPos, 'opção offline não está no topo de Segurança');
     assert(index.includes('id="offline-access-unavailable"'), 'mensagem de incompatibilidade ausente');
+    assert(index.includes('Autorizar este dispositivo por 30 dias'), 'botão explícito de autorização por dispositivo ausente');
+    assert(index.includes('Renovar este dispositivo por 30 dias'), 'renovação explícita por dispositivo ausente');
     assert(app.includes('el.offlineAccessSection.hidden = false'), 'interface offline pode sumir silenciosamente');
-    assert(sw.includes("keyron-shell-v1.0.F-r2"), 'cache corrigido não foi versionado');
-    assert(app.includes("service-worker.js?v=1.0.F-r2") && app.includes("updateViaCache: 'none'"), 'atualização forçada do PWA ausente');
+    assert(offlineAccess.includes('globalThis.KeyronOfflineAccess = KeyronOfflineAccess'), 'módulo offline não foi exposto à interface');
+    assert((app.match(/KeyronOfflineAccess\.enroll\(/g) || []).length === 1, 'autorização offline possui rota automática ou duplicada');
+    assert((app.match(/KeyronOfflineAccess\.refresh\(/g) || []).length === 1, 'renovação offline possui rota automática ou duplicada');
+    assert(!app.includes('refreshExistingOfflineAuthorization'), 'autorização offline ainda é renovada automaticamente no login');
+    assert(sw.includes("keyron-shell-v1.0.F-r4"), 'cache corrigido não foi versionado');
+    assert(app.includes("service-worker.js?v=1.0.F-r4") && app.includes("updateViaCache: 'none'"), 'atualização forçada do PWA ausente');
   });
 
   test('Drive combina If-Match com preflight de linhagem e confirmação sem ETag', () => {

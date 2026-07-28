@@ -105,7 +105,7 @@ const context = {
 context.globalThis = context;
 vm.createContext(context);
 const file = path.resolve(__dirname, '..', 'js', 'offline-access.js');
-vm.runInContext(fs.readFileSync(file, 'utf8') + '\n;globalThis.KeyronOfflineAccess=KeyronOfflineAccess;', context, { filename: file });
+vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: file });
 const KeyronOfflineAccess = context.KeyronOfflineAccess;
 
 let passed = 0;

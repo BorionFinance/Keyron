@@ -2,7 +2,7 @@
 
 ## Suíte automatizada
 
-Cada rodada executa 98 verificações:
+Cada rodada executa 100 verificações:
 
 - 15 testes de núcleo: criação, ordenação, migração, exclusão, AES-GCM, KDF, recuperação e reordenação de gavetas.
 - 25 testes dinâmicos de segurança: adulteração de conteúdo/metadados, vínculo de conta, KDF malicioso, Base64 inválido, linhagem, revisão regressiva, rollback de envelopes, recuperação, normalização e limites.
@@ -24,7 +24,7 @@ node tests/run-all.js 18
 
 ## Resultado da homologação
 
-Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Após a correção de interface/cache e sincronização sem `ETag`, a suíte completa foi executada novamente em 18 rodadas consecutivas. Resultado: **1.800/1.800 verificações aprovadas**, sem falhas.
+Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Após corrigir a exposição real do módulo offline, tornar a autorização explicitamente opt-in por dispositivo e remover a renovação automática no login, a suíte completa foi executada em 18 rodadas. Resultado: **1.800/1.800 verificações aprovadas**, sem falhas.
 
 ## Casos específicos do modo offline
 
@@ -57,3 +57,5 @@ O ambiente isolado de empacotamento não autentica numa conta Google real e não
 - cabeçalhos entregues pelo servidor na primeira navegação.
 
 A análise automatizada não é prova matemática de ausência de vulnerabilidades. Ela demonstra que os invariantes codificados passaram e reduz regressões conhecidas.
+
+- A interface confirma a exposição real do módulo ao `globalThis`, o botão explícito por dispositivo e a ausência de criação/renovação automática no login.

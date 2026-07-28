@@ -1,72 +1,48 @@
-# Keyron v0.3.9 — configuração do Google Drive
+# Configuração do Keyron v0.4.0
 
-O Keyron é um aplicativo estático. Não existe servidor próprio recebendo suas senhas. O navegador cifra o cofre e só então envia o arquivo cifrado ao seu Google Drive.
+## 1. Google OAuth
 
-## 1. Criar o projeto no Google Cloud
+Edite `js/config.js` e informe o Client ID do aplicativo Web criado no Google Cloud:
 
-1. Acesse o Google Cloud Console.
-2. Crie ou selecione um projeto dedicado ao Keyron.
-3. Em **APIs e serviços > Biblioteca**, ative a **Google Drive API**.
-4. Em **Tela de consentimento OAuth**, configure o aplicativo. Para uso pessoal, mantenha como teste e adicione seu próprio e-mail como usuário de teste.
-5. Em **Credenciais**, crie um **ID do cliente OAuth 2.0** do tipo **Aplicativo da Web**.
-
-## 2. Informar as origens autorizadas
-
-Em **Origens JavaScript autorizadas**, adicione exatamente os endereços onde o app será aberto. Exemplos:
-
-- `https://keyron.borionfinance.com.br`
-- `http://localhost:8000` para teste local
-
-Não coloque caminhos como `/index.html` nessa lista.
-
-## 3. Client ID já configurado nesta versão
-
-A versão v0.3.9 já utiliza o mesmo Client ID OAuth da versão estável do Borion. Não é necessário editar `js/config.js`.
-
-O Keyron não utiliza nem precisa da API Key do Borion: a autenticação e o acesso restrito ao Drive funcionam apenas com o Client ID OAuth e o escopo `drive.file`.
-
-## 4. Publicar
-
-Publique todo o conteúdo desta pasta na raiz do site. O Keyron precisa ser servido por HTTPS para Web Crypto, PWA e autenticação funcionarem de forma confiável.
-
-Para teste local:
-
-```bash
-python -m http.server 8000
+```js
+window.KeyronConfig = {
+  GOOGLE_CLIENT_ID: 'SEU_CLIENT_ID.apps.googleusercontent.com',
+  MAX_LOGO_BYTES: 4194304
+};
 ```
 
-Depois abra `http://localhost:8000`.
+No Google Cloud, cadastre exatamente os domínios HTTPS em que o Keyron será aberto em **Origens JavaScript autorizadas**. Para produção, use o domínio final do Keyron.
 
-## Estrutura criada no Drive
+O Keyron solicita:
 
-O app cria somente esta estrutura:
+- `openid email profile`, para identificar a conta escolhida;
+- `https://www.googleapis.com/auth/drive.file`, para acessar somente arquivos criados ou abertos pelo próprio aplicativo.
 
-```text
-Keyron/
-├── vault.keyron
-└── Backups/
-    └── <identificador-aleatorio>.keyron
-```
+No acesso normal, o aplicativo não força `select_account`. O seletor completo de conta é usado somente quando o usuário pede para trocar de conta ou sai da conta atual.
 
-O conteúdo de `vault.keyron` e dos snapshots é cifrado com AES-256-GCM. Nomes, tamanho e datas dos arquivos continuam sendo metadados visíveis ao Google Drive; o conteúdo do cofre, incluindo senhas, notas, categorias e logos, não é enviado em texto puro.
+## 2. HTTPS obrigatório
 
-## Importante sobre a senha mestra
+Publique em HTTPS. Biometria/WebAuthn, Service Worker, PWA, área de transferência e vários recursos de segurança exigem contexto seguro.
 
-- Ela não é armazenada no navegador nem no Drive.
-- Ela não é enviada ao Google.
-- Ela é usada localmente com PBKDF2-HMAC-SHA-256 e 600.000 iterações para derivar a chave AES-256.
-- Não existe recuperação da senha mestra. Perder essa senha significa perder o acesso ao conteúdo cifrado.
-- Guarde um backup `.keyron` e a senha mestra em locais separados.
+## 3. Verificação de senhas vazadas
 
+A Content Security Policy já permite conexão somente com:
 
-## Correção obrigatória no Google Cloud para o subdomínio
+- APIs do Google necessárias ao Drive e OAuth;
+- `https://api.pwnedpasswords.com`, usado pela consulta k-anonymity.
 
-Na mesma credencial OAuth usada pelo Borion, abra **Origens JavaScript autorizadas** e confirme que existe exatamente:
+A verificação semanal acontece ao abrir e desbloquear o Keyron quando:
 
-```text
-https://keyron.borionfinance.com.br
-```
+- a opção está ativada nas Configurações;
+- já passaram 7 dias desde a última verificação;
+- existe conexão com a internet.
 
-Sem caminho, sem barra final e sem `www`. O Google não aceita curingas para subdomínios. Por isso, autorizar `https://www.borionfinance.com.br` não autoriza automaticamente `https://keyron.borionfinance.com.br`.
+Não há tarefa em servidor nem verificação com o cofre bloqueado. O aplicativo precisa estar aberto e desbloqueado para calcular os hashes localmente.
 
-Depois de publicar esta versão, faça uma atualização forçada com `Ctrl + F5`. A v0.3.0 já havia corrigido o cache antigo do PWA que podia continuar entregando o `config.js` com o valor de exemplo.
+## 4. Atualização da 0.3.9
+
+Substitua os arquivos publicados pelos arquivos da 0.4.0. O Service Worker usa um cache novo e remove o cache antigo na ativação.
+
+Ao desbloquear um cofre antigo, a migração para o schema 3 é automática. Ela adiciona a ordem interna das credenciais e a estrutura de auditoria sem alterar senhas, notas, logos ou categorias.
+
+Antes de atualizar produção, mantenha uma cópia do arquivo `.keyron` atual.

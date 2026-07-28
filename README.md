@@ -1,34 +1,51 @@
-# Keyron v0.3.9
+# Keyron v0.4.0
 
-Cofre pessoal de credenciais com autenticação Google, senha mestra e criptografia local antes da sincronização com o Google Drive.
+Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
 
-## Principais recursos
+## O que mudou nesta versão
 
-- Fluxo obrigatório: Google OAuth → senha mestra (ou biometria do aparelho, se ativada).
-- AES-256-GCM com PBKDF2-HMAC-SHA-256 e 600.000 iterações.
-- Desbloqueio biométrico opcional (WebAuthn + extensão PRF), local a cada dispositivo.
-- Gavetas personalizadas, categorias e movimentação por arrastar e soltar, com opção de expandir/retrair cada gaveta (ou todas de uma vez) para cofres com muitas credenciais.
-- Registro local de atividade (novas credenciais, gavetas e categorias) com data e hora, visível em Configurações e como "última adição" no topo do cofre.
-- Logos PNG, JPG ou WebP de até 4 MB na entrada, reduzidas para no máximo 512 px e cifradas dentro do cofre.
-- IndexedDB para o cache local cifrado, sem depender do limite pequeno do `localStorage`.
-- Exportação e importação de backup `.keyron`, com verificação da senha antes da substituição.
-- Snapshots cifrados e rotativos no Drive.
-- Bloqueio automático e tentativa segura de limpeza da área de transferência.
-- Migração do bundle legado `borion_senhas_bundle` e do arquivo `borion-senhas-vault.json`.
+- Nova ordenação manual das credenciais dentro de cada gaveta.
+- Arraste entre gavetas com indicador da posição exata.
+- Rolagem automática nas bordas e suporte à roda do mouse durante o arraste.
+- Novo ícone de expandir/retrair gavetas.
+- Biblioteca maior de símbolos para gavetas.
+- Edição de credencial preserva a posição da página ao fechar.
+- No mobile, a biometria é tentada antes de mostrar o teclado da senha mestra.
+- Animação de entrada ao desbloquear o cofre.
+- Fluxo Google sem forçar a seleção da mesma conta duas vezes; o seletor completo aparece apenas ao escolher “Trocar conta Google” ou sair.
+- Central de Configurações reorganizada em Segurança, Privacidade, Aparência, Dados, Atividade e Sobre.
+- Área “Por que o Keyron foi criado”, contando a evolução da planilha EVA para um cofre cifrado.
+- Verificação manual ou semanal de senhas encontradas em vazamentos usando HIBP Pwned Passwords com k-anonymity.
 
-## Salvamento rápido e resistente
+## Segurança mantida
 
-O Keyron usa uma camada própria de durabilidade adaptada ao requisito principal do app: **nenhum dado sensível pode ser gravado em texto puro**.
+A versão 0.4.0 não reduz a proteção criptográfica da 0.3.9:
 
-- WAL local cifrado: a versão pendente fica protegida no IndexedDB antes da confirmação do Drive.
-- Salvamento local primeiro: a interface não espera o upload remoto para responder.
-- Consolidação `latest-wins`: mudanças muito rápidas são agrupadas e estados intermediários desnecessários são descartados.
-- Revisão e identificador por operação: evita que uma confirmação antiga apague uma alteração mais nova ainda pendente.
-- Sincronização em segundo plano após pequeno debounce.
-- Retentativas automáticas com espera progressiva quando o Drive ou a internet falham.
-- Recuperação de alteração pendente após atualização, fechamento repentino ou reinício do navegador.
-- `navigator.locks` para serializar a escrita no Drive entre abas compatíveis.
-- Tentativa de `flush` ao ocultar a página, bloquear o cofre e fechar a aba.
-- Snapshot automático executado depois da atualização principal, sem atrasar o salvamento de `vault.keyron`.
+- AES-256-GCM com autenticação do conteúdo.
+- PBKDF2-HMAC-SHA-256 com 600.000 iterações.
+- AAD vinculado ao identificador do cofre.
+- Senha mestra nunca persistida em texto puro.
+- Conteúdo cifrado antes de ser enviado ao Drive.
+- Escopo Google `drive.file`.
+- Biometria protegida localmente por WebAuthn/PRF quando o navegador oferece suporte.
 
-Leia `CONFIGURACAO.md` e `SEGURANCA.md` antes de publicar.
+## Verificação de vazamentos
+
+O Keyron calcula SHA-1 localmente apenas porque esse é o protocolo de consulta da API Pwned Passwords. A senha e o hash completo não são enviados. Somente os 5 primeiros caracteres do hash são consultados; o restante é comparado dentro do aparelho.
+
+Os resultados — identificador da credencial, quantidade conhecida e data — ficam salvos dentro do próprio cofre cifrado. Nenhuma senha ou hash é gravado na auditoria.
+
+## Recuperação da senha mestra
+
+O Keyron não usa CPF, CEP, telefone, nome da mãe ou perguntas pessoais para liberar o cofre. Esses dados são descobríveis e criariam uma porta dos fundos.
+
+O e-mail identifica a conta Google e permite acessar o arquivo cifrado, mas não consegue descriptografá-lo. Guarde a senha mestra em local seguro e mantenha a biometria ativada nos dispositivos confiáveis.
+
+## Publicação
+
+1. Configure `js/config.js` conforme `CONFIGURACAO.md`.
+2. Publique todo o conteúdo desta pasta em um domínio HTTPS.
+3. Autorize o domínio no cliente OAuth do Google.
+4. Abra o Keyron, faça login uma vez e crie ou desbloqueie o cofre.
+
+O projeto é HTML, CSS e JavaScript puros; não exige Node.js no servidor.

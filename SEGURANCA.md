@@ -1,34 +1,58 @@
-# Modelo de segurança — Keyron v0.3.9
+# Segurança — Keyron v0.4.0
 
-## O que é protegido
+## Modelo do cofre
 
-Todo o conteúdo sensível do cofre é serializado e cifrado no navegador: nomes das credenciais, usuários, e-mails, senhas, segredos adicionais, URLs, notas, categorias, gavetas e logos.
+O Keyron é um cofre zero-knowledge no sentido de que o conteúdo legível é cifrado localmente antes da sincronização. O Google Drive funciona como transporte e armazenamento do bundle cifrado.
 
-## Camadas
+### Criptografia
 
-1. **Google OAuth:** restringe o acesso aos arquivos do próprio app com o escopo `drive.file`.
-2. **Senha mestra:** deriva localmente uma chave AES-256 não exportável via PBKDF2-SHA256 com 600.000 iterações.
-3. **AES-256-GCM:** fornece confidencialidade e autenticação do conteúdo. Alterações indevidas no ciphertext impedem a abertura.
-4. **Bloqueio por inatividade:** descarta as referências à chave e ao cofre em memória.
-5. **CSP e validação:** restringe origens externas, URLs e formatos de imagens.
-6. **Desbloqueio biométrico (opcional, local ao dispositivo):** usa a extensão PRF do WebAuthn para derivar, a partir de uma verificação biométrica real (digital, rosto ou PIN do sistema) feita pelo próprio hardware seguro do aparelho, uma chave AES-GCM local. Essa chave abre um pequeno envelope cifrado — guardado só neste dispositivo, nunca no Drive — que contém a senha mestra. Sem uma verificação biométrica bem-sucedida naquele hardware específico, o envelope não pode ser aberto. Se o navegador ou aparelho não suportar a extensão PRF, o recurso fica automaticamente indisponível e a senha mestra digitada continua sendo o único caminho — nunca há um caminho mais fraco escondido por trás do botão de biometria.
+- Cifra: AES-GCM de 256 bits.
+- Tag de autenticação: 128 bits.
+- KDF: PBKDF2-HMAC-SHA-256.
+- Iterações: 600.000.
+- Salt aleatório: 16 bytes.
+- IV aleatório: 12 bytes por cifragem.
+- AAD: contexto e identificador do cofre.
 
-## Limites reais
+A senha mestra é usada para derivar a chave e não é gravada no bundle.
 
-- O Google Drive não oferece “senha no arquivo” como uma segunda senha independente via API. No Keyron, a senha mestra já é a senha criptográfica do arquivo: sem ela, o conteúdo não é legível.
-- O Google vê metadados de armazenamento, como nomes de pastas/arquivos, tamanhos e horários. O conteúdo permanece cifrado.
-- Um dispositivo comprometido por malware, extensão maliciosa, keylogger ou acesso remoto pode capturar dados enquanto o cofre está aberto. Nenhum aplicativo web elimina esse risco.
-- A limpeza automática da área de transferência depende das permissões do navegador e não pode ser garantida em todos os sistemas.
-- O desbloqueio biométrico depende do navegador/SO suportar a extensão PRF do WebAuthn (suporte ainda é recente e varia por aparelho). Teste no seu dispositivo antes de confiar nele como único método do dia a dia — a senha mestra continua sendo o método de referência.
-- Este projeto ainda não passou por auditoria criptográfica externa. Para uso comercial ou compartilhamento com muitos usuários, faça revisão independente, testes de invasão e política formal de resposta a incidentes.
+## Biometria
 
-## Durabilidade sem texto puro
+Quando disponível, o Keyron usa WebAuthn/PRF para proteger localmente o material necessário ao desbloqueio biométrico. Esse registro:
 
-O Save Engine mantém dois registros locais cifrados:
+- pertence somente ao dispositivo e navegador atual;
+- não é enviado ao Google Drive;
+- pode ser apagado nas Configurações;
+- não substitui a criptografia do arquivo.
 
-- `current`: última versão cifrada disponível neste dispositivo;
-- `pending`: última versão cifrada ainda não confirmada no Google Drive.
+No mobile, a tentativa biométrica vem primeiro. A senha mestra aparece como fallback se a biometria falhar, for cancelada ou estiver indisponível.
 
-O marcador em `localStorage` contém somente metadados técnicos, como revisão, horário, identificador da operação e motivo genérico. Ele não contém nomes de serviços, usuários, senhas, notas, logos ou categorias.
+## Senhas vazadas
 
-A confirmação remota só remove o registro pendente quando pertence ao mesmo cofre e não é mais antiga do que a revisão protegida localmente.
+A consulta usa o endpoint Pwned Passwords por prefixo:
+
+1. O SHA-1 da senha é calculado localmente.
+2. Apenas os 5 primeiros caracteres do hash são enviados.
+3. O serviço devolve vários sufixos possíveis, com padding.
+4. O navegador compara o sufixo completo localmente.
+5. O Keyron salva somente o resultado por credencial e a data, dentro do cofre cifrado.
+
+O SHA-1 não é usado para cifrar nem armazenar senhas. Ele é usado exclusivamente porque faz parte do protocolo de k-anonymity dessa base.
+
+## Recuperação e ausência de porta dos fundos
+
+Não existe recuperação por CPF, CEP, telefone, nome da mãe, perguntas secretas ou simples confirmação por e-mail. Esses mecanismos reduziriam a segurança e permitiriam ataques com dados pessoais vazados.
+
+Sem a senha mestra ou uma biometria válida já registrada naquele dispositivo, o cofre deve permanecer inacessível. Essa limitação é uma propriedade de segurança, não um erro.
+
+## Dados que o Google ainda pode ver
+
+O Google pode ver metadados do arquivo, como nome, tamanho e datas. O conteúdo interno — credenciais, ordem das gavetas, notas, logos, preferências e auditorias — permanece cifrado.
+
+## Recomendações
+
+- Use uma frase mestra longa, exclusiva e não reutilizada.
+- Ative biometria apenas em dispositivos confiáveis.
+- Exporte backups `.keyron` periodicamente.
+- Apague CSVs em texto puro após importá-los.
+- Troque imediatamente qualquer senha sinalizada pela verificação de vazamentos.

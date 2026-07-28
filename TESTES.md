@@ -1,52 +1,29 @@
-# Relatório de testes — Keyron v0.3.0
+# Relatório de testes — Keyron v0.4.0
 
-Data da revisão: 27/07/2026
+## Testes automatizados de núcleo: 10/10 aprovados
 
-## Testes executados nesta versão
+1. Criação de cofre no schema 3.
+2. Inclusão de nova credencial no topo.
+3. Reordenação para cima e para baixo na mesma gaveta.
+4. Mudança entre gavetas na posição escolhida.
+5. Edição sem alterar a ordem manual.
+6. Migração da versão 0.3.9/schema 2 preservando a ordem visual anterior.
+7. Exclusão com reindexação e limpeza da auditoria relacionada.
+8. Cifragem e abertura real com AES-256-GCM e PBKDF2 de 600.000 iterações; rejeição de senha errada; ausência do segredo no bundle.
+9. SHA-1 local conhecido e parser da resposta k-anonymity.
+10. Regra semanal de sete dias.
 
-### Validação estática
+## Validações estáticas aprovadas
 
-- Sintaxe de todos os arquivos JavaScript validada com `node --check`.
-- `manifest.json` validado como JSON.
-- Referências locais do HTML conferidas.
-- IDs do HTML verificados, sem duplicações.
-- Ordem dos scripts verificada: criptografia → armazenamento → Save Engine → cofre → Drive → aplicativo.
-- Cache do Service Worker atualizado para `keyron-shell-v0.3.0`.
+- Sintaxe de todos os arquivos JavaScript.
+- Todos os IDs usados pelo `app.js` existem no HTML.
+- Nenhum ID duplicado no HTML.
+- Todos os scripts, estilos e recursos do Service Worker existem.
+- Cache do PWA atualizado para v0.4.0.
+- CSP contém o domínio do Pwned Passwords e continua restritiva.
+- Fluxo normal do Google não força seletor de conta.
+- Ordenação manual, animação de desbloqueio e biometria-primeiro presentes no código final.
 
-### Núcleo criptográfico e Save Engine
+## Testes que exigem ambiente externo
 
-Foi executado um teste automatizado em Node.js com Web Crypto real e uma implementação controlada de IndexedDB. Foram validados:
-
-- criação e abertura de bundle AES-256-GCM;
-- derivação PBKDF2-HMAC-SHA-256 com 600.000 iterações;
-- gravação de WAL contendo somente bundle cifrado;
-- recuperação do bundle pendente;
-- consolidação de alterações rápidas no modelo `latest-wins`;
-- aumento monotônico de revisão;
-- rejeição de confirmação remota antiga quando existe revisão local mais nova;
-- limpeza do WAL após confirmação da operação correta;
-- ausência de nomes, senhas e conteúdo do cofre no JSON enviado ao Drive.
-
-Resultado do teste automatizado: **aprovado**.
-
-## Comportamentos revisados no código
-
-- Criação do cofre continua disponível se o Drive falhar depois da proteção local.
-- Importação confirmada por senha não é desfeita quando apenas o upload remoto falha.
-- Bloqueio aguarda brevemente o salvamento local e tenta concluir a sincronização pendente.
-- Falhas transitórias 408, 429 e 5xx recebem novas tentativas automáticas.
-- O teste de necessidade de snapshot é armazenado em cache, evitando uma listagem de backups a cada salvamento.
-- O snapshot automático usa a versão remota anterior e roda depois do `PATCH` principal.
-
-## Limite desta revisão
-
-O ambiente desta análise não permitiu abrir uma origem HTTP/HTTPS no Chromium por política administrativa. Portanto, o OAuth real e a interface completa não foram executados contra a sua conta Google nesta etapa.
-
-Antes de inserir senhas verdadeiras, publique no domínio autorizado e valide:
-
-1. entrada com a conta Google correta;
-2. criação e reabertura do cofre;
-3. cadastro de uma credencial de teste;
-4. fechamento imediato da aba e nova abertura;
-5. confirmação de `Sincronizado`;
-6. presença de `Keyron/vault.keyron` e dos snapshots no Drive.
+Google OAuth, Google Drive, WebAuthn/PRF e a resposta ao vivo do Pwned Passwords dependem de domínio HTTPS autorizado, conta Google, dispositivo com biometria e internet. Esses serviços não podem ser simulados integralmente no ambiente isolado de empacotamento; devem ser confirmados no domínio final após a publicação.

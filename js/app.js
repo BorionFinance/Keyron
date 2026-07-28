@@ -28,7 +28,15 @@
     clipboardTimer: null,
     pendingImportBundle: null,
     preImportBundle: null,
-    pendingCsvImport: null
+    pendingCsvImport: null,
+    forceAccountChoiceNext: false,
+    entryDialogScroll: null,
+    draggingEntryId: null,
+    dragDropTarget: null,
+    dragScrollFrame: null,
+    dragScrollVelocity: { x: 0, y: 0 },
+    biometricAutoAttempted: false,
+    breachScanInFlight: false
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -105,6 +113,13 @@
     categoryColor: $('#category-color'),
     categoryList: $('#category-list'),
     settingsDialog: $('#settings-dialog'),
+    settingsNav: $('#settings-nav'),
+    settingsContent: $('#settings-content'),
+    breachWeekly: $('#setting-breach-weekly'),
+    breachCheckBtn: $('#breach-check-btn'),
+    breachLastCheck: $('#breach-last-check'),
+    breachStatus: $('#breach-status'),
+    breachResults: $('#breach-results'),
     activityList: $('#activity-list'),
     activityEmpty: $('#activity-empty'),
     cpForm: $('#change-password-form'),
@@ -316,6 +331,7 @@
 
   async function onGoogleVerified(profile) {
     state.googleVerified = true;
+    state.forceAccountChoiceNext = false;
     state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
     el.googleBtn.disabled = false;
     const accountLabel = state.googleUser?.email ? `Google verificado: ${state.googleUser.email}.` : 'Google verificado.';
@@ -354,38 +370,66 @@
     el.masterStep.hidden = true;
   }
 
+  function prefersBiometricFirst() {
+    return window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+  }
+
   function showMasterStep() {
     document.body.dataset.screen = 'access';
     el.appScreen.hidden = true;
     el.accessShell.hidden = false;
     el.googleStep.hidden = true;
     el.masterStep.hidden = false;
-    refreshBiometricUnlockUI();
-    setTimeout(() => el.masterPassword.focus(), 80);
+    refreshBiometricUnlockUI({ autoAttempt: true }).catch(() => {
+      document.body.classList.remove('biometric-first');
+      setTimeout(() => el.masterPassword.focus(), 80);
+    });
   }
 
-  async function refreshBiometricUnlockUI() {
+  async function refreshBiometricUnlockUI({ autoAttempt = false } = {}) {
     const vaultId = state.bundle?.vaultId;
-    const eligible = state.accessMode === 'unlock' && vaultId && (await KeyronBiometric.platformAvailable()) && (await KeyronBiometric.hasRecord(vaultId));
+    const eligible = Boolean(state.accessMode === 'unlock' && vaultId && (await KeyronBiometric.platformAvailable()) && (await KeyronBiometric.hasRecord(vaultId)));
     el.biometricUnlockBtn.hidden = !eligible;
     el.biometricDivider.hidden = !eligible;
+    const biometricFirst = eligible && prefersBiometricFirst();
+    document.body.classList.toggle('biometric-first', biometricFirst);
+
+    if (!eligible || !biometricFirst) {
+      setTimeout(() => el.masterPassword.focus(), 80);
+      return eligible;
+    }
+
+    if (autoAttempt && !state.biometricAutoAttempted) {
+      state.biometricAutoAttempted = true;
+      setTimeout(() => tryBiometricUnlock(true), 130);
+    }
+    return eligible;
   }
 
-  async function tryBiometricUnlock() {
+  function showPasswordFallback() {
+    document.body.classList.remove('biometric-first');
+    el.biometricDivider.hidden = false;
+    setTimeout(() => el.masterPassword.focus(), 70);
+  }
+
+  async function tryBiometricUnlock(automatic = false) {
     const vaultId = state.bundle?.vaultId;
-    if (!vaultId) return;
+    if (!vaultId || el.biometricUnlockBtn.disabled) return false;
     el.biometricUnlockBtn.disabled = true;
     try {
       const password = await KeyronBiometric.unlock(vaultId);
       await unlockVault(password);
+      return Boolean(state.key);
     } catch (error) {
       const messages = {
-        USER_CANCELLED: 'Verificação biométrica cancelada.',
+        USER_CANCELLED: 'Biometria cancelada. Digite sua senha mestra.',
         NO_RECORD: 'Biometria não ativada neste dispositivo.',
         ASSERTION_FAILED: 'Não foi possível confirmar a biometria. Digite sua senha mestra.',
         UNWRAP_FAILED: 'A biometria não confere mais. Digite sua senha mestra.'
       };
-      toast(messages[error.message] || 'Não foi possível usar a biometria agora.', 'error', 4200);
+      showPasswordFallback();
+      if (!automatic || error.message !== 'USER_CANCELLED') toast(messages[error.message] || 'Não foi possível usar a biometria agora.', 'error', 4200);
+      return false;
     } finally {
       el.biometricUnlockBtn.disabled = false;
     }
@@ -393,6 +437,8 @@
 
   function configureMasterStep(mode) {
     state.accessMode = mode;
+    state.biometricAutoAttempted = false;
+    document.body.classList.remove('biometric-first');
     document.body.dataset.accessMode = mode;
     state.failedAttempts = 0;
     el.masterPassword.value = '';
@@ -606,7 +652,7 @@
       const rawBundle = state.bundle;
       const result = await KeyronCrypto.unlockBundle(password, rawBundle);
       const normalized = KeyronVault.normalize(result.vault);
-      const needsMigration = result.legacy || Number(result.vault?.version || 1) < 2 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS;
+      const needsMigration = result.legacy || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS;
 
       if (needsMigration) {
         const migrated = await KeyronCrypto.rekeyBundle(password, normalized, normalized.id);
@@ -641,13 +687,17 @@
   function openApplication() {
     document.body.dataset.screen = 'app';
     document.body.dataset.accessMode = 'app';
+    document.body.classList.remove('biometric-first');
+    document.body.classList.add('vault-entering');
     el.accessShell.hidden = true;
     el.appScreen.hidden = false;
     state.collapsedColumns = new Set(state.vault.columns.map((c) => c.id));
     renderAll();
     resetAutoLockTimer();
     setSyncStatus(state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline'));
-    setTimeout(() => el.search.focus(), 100);
+    setTimeout(() => document.body.classList.remove('vault-entering'), 760);
+    setTimeout(() => el.search.focus(), 180);
+    setTimeout(() => scheduleWeeklyBreachCheck(), 1200);
   }
 
   async function lockVault({ signOut = false } = {}) {
@@ -670,6 +720,7 @@
       KeyronDrive.disconnect();
       state.googleVerified = false;
       state.googleUser = null;
+      state.forceAccountChoiceNext = true;
       showGoogleStep();
       el.googleState.textContent = 'Aguardando verificação do Google.';
     } else if (state.googleVerified && KeyronDrive.isConnected()) {
@@ -909,8 +960,10 @@
 
     const head = document.createElement('div');
     head.className = 'column-head';
-    const collapseBtn = columnAction(isCollapsed ? '▸' : '▾', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
+    const collapseBtn = columnAction('', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
     collapseBtn.classList.add('column-collapse-btn');
+    collapseBtn.setAttribute('aria-expanded', String(!isCollapsed));
+    collapseBtn.innerHTML = '<svg class="column-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>';
     const icon = document.createElement('span');
     icon.className = 'column-icon';
     icon.textContent = column.icon;
@@ -942,7 +995,7 @@
       body.appendChild(empty);
     } else {
       visibleEntries
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+        .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
         .forEach((entry) => body.appendChild(createCredentialCard(entry, categories.get(entry.categoryId))));
     }
 
@@ -1059,8 +1112,26 @@
     return button;
   }
 
+  function captureEntryDialogScroll(entry) {
+    state.entryDialogScroll = entry ? {
+      x: window.scrollX,
+      y: window.scrollY,
+      boardLeft: el.board.scrollLeft
+    } : null;
+  }
+
+  function restoreEntryDialogScroll() {
+    const saved = state.entryDialogScroll;
+    if (!saved) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo({ left: saved.x, top: saved.y, behavior: 'auto' });
+      el.board.scrollLeft = saved.boardLeft;
+    }));
+  }
+
   function openEntryDialog(entryId = null, preferredColumnId = null) {
     const entry = entryId ? state.vault.entries.find((item) => item.id === entryId) : null;
+    captureEntryDialogScroll(entry);
     state.editingEntryId = entry?.id || null;
     state.pendingLogo = entry?.logo ? structuredClone(entry.logo) : null;
     el.entryDialogTitle.textContent = entry ? 'Editar credencial' : 'Nova credencial';
@@ -1155,6 +1226,7 @@
       else KeyronVault.addEntry(state.vault, data);
       el.entryDialog.close();
       await persistVault({ reason: state.editingEntryId ? 'entry-update' : 'entry-create' });
+      restoreEntryDialogScroll();
       toast(state.editingEntryId ? 'Credencial atualizada.' : 'Credencial adicionada.', 'success');
     } catch (error) {
       console.error(error);
@@ -1171,6 +1243,7 @@
     KeyronVault.deleteEntry(state.vault, entry.id);
     el.entryDialog.close();
     await persistVault({ reason: 'entry-delete' });
+    restoreEntryDialogScroll();
     toast('Credencial excluída.', 'success');
   }
 
@@ -1274,17 +1347,105 @@
     renderCategoryDialog();
   }
 
+  function activateSettingsSection(name, { scroll = true } = {}) {
+    const target = name || 'security';
+    $$('[data-settings-section]', el.settingsNav).forEach((button) => button.classList.toggle('is-active', button.dataset.settingsSection === target));
+    $$('[data-settings-panel]', el.settingsContent).forEach((panel) => panel.classList.toggle('is-active', panel.dataset.settingsPanel === target));
+    if (scroll) el.settingsContent.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function renderBreachResults() {
+    if (!el.breachResults || !state.vault) return;
+    const audit = state.vault.securityAudit || { results: [] };
+    const byId = new Map(state.vault.entries.map((entry) => [entry.id, entry]));
+    const exposed = (audit.results || []).filter((result) => Number(result.count) > 0 && byId.has(result.entryId)).sort((a, b) => b.count - a.count);
+    el.breachResults.replaceChildren();
+    if (!audit.lastBreachCheckAt) {
+      el.breachLastCheck.textContent = 'Ainda não verificado.';
+      return;
+    }
+    el.breachLastCheck.textContent = `Última verificação: ${formatFullDateTime(audit.lastBreachCheckAt)}.`;
+    if (!exposed.length) {
+      const safe = document.createElement('div');
+      safe.className = 'breach-safe';
+      safe.textContent = '✓ Nenhuma senha do cofre foi encontrada na base consultada.';
+      el.breachResults.appendChild(safe);
+      return;
+    }
+    for (const result of exposed) {
+      const entry = byId.get(result.entryId);
+      const row = document.createElement('div');
+      row.className = 'breach-result';
+      const name = document.createElement('b');
+      name.textContent = entry.name;
+      const count = document.createElement('span');
+      count.textContent = `${Number(result.count).toLocaleString('pt-BR')} ocorrência(s) conhecida(s)`;
+      row.append(name, count);
+      el.breachResults.appendChild(row);
+    }
+  }
+
   function renderSettings() {
     if (!state.vault || !state.bundle) return;
     el.autoLock.value = String(state.vault.preferences?.autoLockMinutes || 5);
     el.clipboard.value = String(state.vault.preferences?.clipboardClearSeconds || 20);
     el.boardColumns.value = String(state.vault.preferences?.boardColumns || 'auto');
+    el.breachWeekly.checked = state.vault.preferences?.breachCheckWeekly !== false;
     const bytes = new Blob([JSON.stringify(state.bundle)]).size;
     el.storageInfo.textContent = `Cofre cifrado neste dispositivo: ${formatBytes(bytes)}`;
     renderActivity();
+    renderBreachResults();
     refreshBiometricSettingsUI();
     populateCsvImportColumn();
     el.cpError.textContent = '';
+  }
+
+  async function runBreachCheck({ automatic = false } = {}) {
+    if (state.breachScanInFlight || !state.vault) return;
+    const passwordEntries = state.vault.entries.filter((entry) => entry.password);
+    if (!passwordEntries.length) {
+      if (!automatic) toast('Não há senhas salvas para verificar.', 'info');
+      return;
+    }
+    if (navigator.onLine === false) {
+      if (!automatic) toast('Conecte-se à internet para consultar a base de vazamentos.', 'warning');
+      return;
+    }
+
+    state.breachScanInFlight = true;
+    if (el.breachCheckBtn) {
+      el.breachCheckBtn.disabled = true;
+      el.breachCheckBtn.textContent = 'Verificando…';
+    }
+    if (el.breachStatus) el.breachStatus.textContent = `Preparando ${passwordEntries.length} senha(s) localmente…`;
+    try {
+      const results = await KeyronBreachCheck.checkEntries(passwordEntries, ({ completed, total }) => {
+        if (el.breachStatus) el.breachStatus.textContent = `Consultando blocos anônimos: ${completed}/${total}…`;
+      });
+      const checkedAt = new Date().toISOString();
+      KeyronVault.setSecurityAudit(state.vault, results, checkedAt);
+      await persistVault({ render: false, reason: 'security-breach-check' });
+      renderSettings();
+      const exposed = results.filter((result) => result.count > 0).length;
+      if (el.breachStatus) el.breachStatus.textContent = exposed ? `${exposed} credencial(is) precisam de atenção.` : 'Verificação concluída sem ocorrências conhecidas.';
+      if (!automatic) toast(exposed ? 'Há senhas encontradas em vazamentos. Troque-as o quanto antes.' : 'Nenhuma senha foi encontrada na base consultada.', exposed ? 'warning' : 'success', 5200);
+    } catch (error) {
+      console.error(error);
+      if (el.breachStatus) el.breachStatus.textContent = 'A base de vazamentos não respondeu. Nenhuma senha completa foi enviada.';
+      if (!automatic) toast('Não foi possível concluir a verificação agora.', 'error');
+    } finally {
+      state.breachScanInFlight = false;
+      if (el.breachCheckBtn) {
+        el.breachCheckBtn.disabled = false;
+        el.breachCheckBtn.textContent = 'Verificar agora';
+      }
+    }
+  }
+
+  function scheduleWeeklyBreachCheck() {
+    if (!state.vault?.preferences?.breachCheckWeekly) return;
+    if (!KeyronBreachCheck.isWeeklyDue(state.vault.securityAudit?.lastBreachCheckAt)) return;
+    runBreachCheck({ automatic: true });
   }
 
   async function refreshBiometricSettingsUI() {
@@ -1351,7 +1512,8 @@
       ...state.vault.preferences,
       autoLockMinutes: Number(el.autoLock.value),
       clipboardClearSeconds: Number(el.clipboard.value),
-      boardColumns: el.boardColumns.value
+      boardColumns: el.boardColumns.value,
+      breachCheckWeekly: el.breachWeekly.checked
     };
     renderBoard();
     await persistVault({ render: false, reason: 'preferences-update' });
@@ -1403,7 +1565,7 @@
       let vault = KeyronVault.normalize(result.vault);
       let bundle = state.pendingImportBundle;
       let key = result.key;
-      if (result.legacy || Number(result.vault?.version || 1) < 2 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS) {
+      if (result.legacy || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS) {
         const migrated = await KeyronCrypto.rekeyBundle(password, vault, vault.id);
         bundle = migrated.bundle;
         key = migrated.key;
@@ -1760,7 +1922,7 @@
     return `${datePart} às ${timePart}`;
   }
 
-  const ACTIVITY_LABELS = { entry: 'Nova credencial', column: 'Nova gaveta', category: 'Nova categoria' };
+  const ACTIVITY_LABELS = { entry: 'Nova credencial', column: 'Nova gaveta', category: 'Nova categoria', security: 'Segurança' };
 
   function renderActivity() {
     if (!el.activityList) return;
@@ -1804,8 +1966,93 @@
     if (action === 'open-url') openEntryUrl(entry.url);
   }
 
+  function clearDragVisuals() {
+    document.body.classList.remove('keyron-dragging');
+    $$('.credential-card.is-dragging').forEach((node) => node.classList.remove('is-dragging'));
+    $$('.vault-column.is-dragover').forEach((node) => node.classList.remove('is-dragover'));
+    $('.drop-indicator', el.board)?.remove();
+    state.dragDropTarget = null;
+    state.draggingEntryId = null;
+    state.dragScrollVelocity = { x: 0, y: 0 };
+    if (state.dragScrollFrame) cancelAnimationFrame(state.dragScrollFrame);
+    state.dragScrollFrame = null;
+  }
+
+  function startDragScrollLoop() {
+    if (state.dragScrollFrame) return;
+    const step = () => {
+      if (!state.draggingEntryId) {
+        state.dragScrollFrame = null;
+        return;
+      }
+      const { x, y } = state.dragScrollVelocity;
+      if (x || y) window.scrollBy({ left: x, top: y, behavior: 'auto' });
+      state.dragScrollFrame = requestAnimationFrame(step);
+    };
+    state.dragScrollFrame = requestAnimationFrame(step);
+  }
+
+  function updateDragAutoScroll(event) {
+    const edge = 92;
+    const maxSpeed = 22;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const axisSpeed = (position, limit) => {
+      if (position < edge) return -Math.ceil(maxSpeed * (1 - Math.max(0, position) / edge));
+      if (position > limit - edge) return Math.ceil(maxSpeed * (1 - Math.max(0, limit - position) / edge));
+      return 0;
+    };
+    state.dragScrollVelocity = { x: axisSpeed(event.clientX, width), y: axisSpeed(event.clientY, height) };
+    startDragScrollLoop();
+  }
+
+  function expandColumnDuringDrag(column) {
+    if (!column.classList.contains('is-collapsed')) return;
+    const columnId = column.dataset.columnId;
+    state.collapsedColumns.delete(columnId);
+    column.classList.remove('is-collapsed');
+    const button = $('[data-action="column-collapse"]', column);
+    if (button) {
+      button.title = 'Retrair gaveta';
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  function updateDropIndicator(event, column) {
+    expandColumnDuringDrag(column);
+    const body = $('.column-body', column);
+    if (!body) return;
+    const cards = $$('.credential-card', body).filter((card) => card.dataset.entryId !== state.draggingEntryId);
+    let targetIndex = cards.length;
+    let beforeNode = null;
+    for (let index = 0; index < cards.length; index += 1) {
+      const rect = cards[index].getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) {
+        targetIndex = index;
+        beforeNode = cards[index];
+        break;
+      }
+    }
+    let indicator = $('.drop-indicator', el.board);
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.className = 'drop-indicator';
+      indicator.setAttribute('aria-hidden', 'true');
+    }
+    if (beforeNode) body.insertBefore(indicator, beforeNode);
+    else body.appendChild(indicator);
+    state.dragDropTarget = { columnId: column.dataset.columnId, index: targetIndex };
+  }
+
+  function handleDragWheel(event) {
+    if (!state.draggingEntryId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    window.scrollBy({ left: event.deltaX, top: event.deltaY, behavior: 'auto' });
+  }
+
   function bindEvents() {
-    el.googleBtn.addEventListener('click', () => startGoogleVerification(true));
+    el.googleBtn.addEventListener('click', () => startGoogleVerification(state.forceAccountChoiceNext));
     el.masterForm.addEventListener('submit', handleMasterSubmit);
     el.masterPassword.addEventListener('input', updateMasterStrength);
     el.toggleMaster.addEventListener('click', () => togglePasswordVisibility(el.masterPassword, el.toggleMaster));
@@ -1822,6 +2069,7 @@
       KeyronDrive.disconnect();
       state.googleVerified = false;
       state.googleUser = null;
+      state.forceAccountChoiceNext = true;
       showGoogleStep();
     });
 
@@ -1835,7 +2083,12 @@
       renderBoard();
     });
     el.manageCategories.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
-    el.settingsBtn.addEventListener('click', () => { renderSettings(); el.settingsDialog.showModal(); });
+    el.settingsBtn.addEventListener('click', () => { renderSettings(); activateSettingsSection('security', { scroll: false }); el.settingsDialog.showModal(); });
+    el.settingsNav.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-settings-section]');
+      if (button) activateSettingsSection(button.dataset.settingsSection);
+    });
+    el.breachCheckBtn.addEventListener('click', () => runBreachCheck());
     el.syncChip.addEventListener('click', reconnectOrSyncDrive);
     el.lockBtn.addEventListener('click', () => lockVault().catch(() => null));
     el.search.addEventListener('input', renderBoard);
@@ -1851,22 +2104,26 @@
     el.board.addEventListener('dragstart', (event) => {
       const card = event.target.closest('.credential-card');
       if (!card) return;
+      state.draggingEntryId = card.dataset.entryId;
+      state.dragDropTarget = null;
       card.classList.add('is-dragging');
+      document.body.classList.add('keyron-dragging');
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('application/x-keyron-entry', card.dataset.entryId);
       event.dataTransfer.setData('text/plain', card.dataset.entryId);
+      const rect = card.getBoundingClientRect();
+      event.dataTransfer.setDragImage(card, Math.min(event.clientX - rect.left, rect.width - 1), Math.min(event.clientY - rect.top, rect.height - 1));
     });
-    el.board.addEventListener('dragend', (event) => {
-      event.target.closest('.credential-card')?.classList.remove('is-dragging');
-      $$('.vault-column.is-dragover').forEach((node) => node.classList.remove('is-dragover'));
-    });
+    el.board.addEventListener('dragend', clearDragVisuals);
     el.board.addEventListener('dragover', (event) => {
       const column = event.target.closest('.vault-column');
-      if (!column) return;
+      if (!column || !state.draggingEntryId) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       $$('.vault-column.is-dragover').forEach((node) => { if (node !== column) node.classList.remove('is-dragover'); });
       column.classList.add('is-dragover');
+      updateDropIndicator(event, column);
+      updateDragAutoScroll(event);
     });
     el.board.addEventListener('dragleave', (event) => {
       const column = event.target.closest('.vault-column');
@@ -1874,17 +2131,27 @@
     });
     el.board.addEventListener('drop', async (event) => {
       const column = event.target.closest('.vault-column');
-      if (!column) return;
+      if (!column || !state.draggingEntryId) return;
       event.preventDefault();
-      column.classList.remove('is-dragover');
-      const entryId = event.dataTransfer.getData('application/x-keyron-entry') || event.dataTransfer.getData('text/plain');
+      const entryId = state.draggingEntryId || event.dataTransfer.getData('application/x-keyron-entry') || event.dataTransfer.getData('text/plain');
       const entry = state.vault.entries.find((item) => item.id === entryId);
-      if (!entry || entry.columnId === column.dataset.columnId) return;
-      KeyronVault.moveEntry(state.vault, entryId, column.dataset.columnId);
-      await persistVault({ reason: 'entry-move' });
-      toast(`“${entry.name}” foi movida para outra gaveta.`, 'success');
+      const target = state.dragDropTarget || {
+        columnId: column.dataset.columnId,
+        index: state.vault.entries.filter((item) => item.columnId === column.dataset.columnId && item.id !== entryId).length
+      };
+      if (!entry) {
+        clearDragVisuals();
+        return;
+      }
+      const previousColumnId = entry.columnId;
+      KeyronVault.reorderEntry(state.vault, entryId, target.columnId, target.index);
+      clearDragVisuals();
+      await persistVault({ reason: 'entry-reorder' });
+      toast(previousColumnId === target.columnId ? `“${entry.name}” foi reordenada.` : `“${entry.name}” foi movida para outra gaveta.`, 'success');
     });
+    window.addEventListener('wheel', handleDragWheel, { passive: false, capture: true });
 
+    el.entryDialog.addEventListener('close', restoreEntryDialogScroll);
     el.entryForm.addEventListener('submit', handleEntrySubmit);
     el.deleteEntry.addEventListener('click', deleteCurrentEntry);
     el.fName.addEventListener('input', () => { if (!state.pendingLogo) renderLogoPreview(); });
@@ -1924,6 +2191,7 @@
     el.autoLock.addEventListener('change', savePreferences);
     el.clipboard.addEventListener('change', savePreferences);
     el.boardColumns.addEventListener('change', savePreferences);
+    el.breachWeekly.addEventListener('change', savePreferences);
     el.cpForm.addEventListener('submit', handleChangePasswordSubmit);
     el.cpNew.addEventListener('input', updateChangePasswordStrength);
     el.cpToggleCurrent.addEventListener('click', () => togglePasswordVisibility(el.cpCurrent, el.cpToggleCurrent));

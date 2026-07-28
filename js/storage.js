@@ -109,6 +109,9 @@ const KeyronStorage = (() => {
     saveCurrent: (bundle) => set(CURRENT_KEY, bundle),
     saveRecovery: (bundle) => set(RECOVERY_KEY, bundle),
     loadRecovery: () => get(RECOVERY_KEY),
-    clearCurrent: () => remove(CURRENT_KEY)
+    clearCurrent: () => remove(CURRENT_KEY),
+    get,
+    set,
+    remove
   });
 })();

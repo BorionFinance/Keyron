@@ -1,12 +1,14 @@
-# Keyron v0.3.0
+# Keyron v0.3.5
 
 Cofre pessoal de credenciais com autenticação Google, senha mestra e criptografia local antes da sincronização com o Google Drive.
 
 ## Principais recursos
 
-- Fluxo obrigatório: Google OAuth → senha mestra.
+- Fluxo obrigatório: Google OAuth → senha mestra (ou biometria do aparelho, se ativada).
 - AES-256-GCM com PBKDF2-HMAC-SHA-256 e 600.000 iterações.
-- Gavetas personalizadas, categorias e movimentação por arrastar e soltar.
+- Desbloqueio biométrico opcional (WebAuthn + extensão PRF), local a cada dispositivo.
+- Gavetas personalizadas, categorias e movimentação por arrastar e soltar, com opção de expandir/retrair cada gaveta (ou todas de uma vez) para cofres com muitas credenciais.
+- Registro local de atividade (novas credenciais, gavetas e categorias) com data e hora, visível em Configurações e como "última adição" no topo do cofre.
 - Logos PNG, JPG ou WebP de até 4 MB na entrada, reduzidas para no máximo 512 px e cifradas dentro do cofre.
 - IndexedDB para o cache local cifrado, sem depender do limite pequeno do `localStorage`.
 - Exportação e importação de backup `.keyron`, com verificação da senha antes da substituição.
@@ -16,7 +18,7 @@ Cofre pessoal de credenciais com autenticação Google, senha mestra e criptogra
 
 ## Salvamento rápido e resistente
 
-A v0.3.0 recebeu uma camada própria de durabilidade inspirada no mecanismo estável do Borion, mas adaptada ao requisito principal do Keyron: **nenhum dado sensível pode ser gravado em texto puro**.
+O Keyron usa uma camada própria de durabilidade adaptada ao requisito principal do app: **nenhum dado sensível pode ser gravado em texto puro**.
 
 - WAL local cifrado: a versão pendente fica protegida no IndexedDB antes da confirmação do Drive.
 - Salvamento local primeiro: a interface não espera o upload remoto para responder.
@@ -29,4 +31,4 @@ A v0.3.0 recebeu uma camada própria de durabilidade inspirada no mecanismo est�
 - Tentativa de `flush` ao ocultar a página, bloquear o cofre e fechar a aba.
 - Snapshot automático executado depois da atualização principal, sem atrasar o salvamento de `vault.keyron`.
 
-Leia `CONFIGURACAO.md`, `SEGURANCA.md` e `RELATORIO_V0.3.0_SAVE_ENGINE.md` antes de publicar.
+Leia `CONFIGURACAO.md` e `SEGURANCA.md` antes de publicar.

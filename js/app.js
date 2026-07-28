@@ -50,17 +50,21 @@
     masterError: $('#master-error'),
     masterSubmit: $('#master-submit'),
     toggleMaster: $('#toggle-master'),
+    biometricUnlockBtn: $('#biometric-unlock-btn'),
+    biometricDivider: $('#biometric-divider'),
     backGoogle: $('#back-google-btn'),
     appScreen: $('#app-screen'),
     search: $('#search-input'),
     syncChip: $('#sync-chip'),
     vaultSummary: $('#vault-summary'),
+    vaultLastActivity: $('#vault-last-activity'),
     filterStrip: $('#filter-strip'),
     board: $('#vault-board'),
     emptyVault: $('#empty-vault'),
     addEntry: $('#add-entry-btn'),
     emptyAdd: $('#empty-add-btn'),
     addColumn: $('#add-column-btn'),
+    collapseAll: $('#collapse-all-btn'),
     manageCategories: $('#manage-categories-btn'),
     settingsBtn: $('#settings-btn'),
     lockBtn: $('#lock-btn'),
@@ -99,6 +103,15 @@
     categoryColor: $('#category-color'),
     categoryList: $('#category-list'),
     settingsDialog: $('#settings-dialog'),
+    activityList: $('#activity-list'),
+    activityEmpty: $('#activity-empty'),
+    biometricSection: $('#biometric-section'),
+    biometricEnableRow: $('#biometric-enable-row'),
+    biometricEnableError: $('#biometric-enable-error'),
+    biometricConfirmPassword: $('#biometric-confirm-password'),
+    biometricEnableBtn: $('#biometric-enable-btn'),
+    biometricActiveRow: $('#biometric-active-row'),
+    biometricDisableBtn: $('#biometric-disable-btn'),
     autoLock: $('#setting-auto-lock'),
     clipboard: $('#setting-clipboard'),
     exportBtn: $('#export-btn'),
@@ -131,6 +144,21 @@
     el.busy.hidden = !visible;
     el.busyTitle.textContent = title;
     el.busyDetail.textContent = detail;
+  }
+
+  const EYE_ICON_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_ICON_CLOSED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.27 21.27 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.27 21.27 0 0 1-3.22 4.53M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+  function setPasswordVisibility(input, button, visible) {
+    input.type = visible ? 'text' : 'password';
+    const icon = button.querySelector('.eye-icon');
+    if (icon) icon.innerHTML = visible ? EYE_ICON_CLOSED : EYE_ICON_OPEN;
+    button.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+    button.title = visible ? 'Ocultar senha' : 'Mostrar senha';
+  }
+
+  function togglePasswordVisibility(input, button) {
+    setPasswordVisibility(input, button, input.type === 'password');
   }
 
   function setSyncStatus(status, label) {
@@ -309,7 +337,35 @@
     el.accessShell.hidden = false;
     el.googleStep.hidden = true;
     el.masterStep.hidden = false;
+    refreshBiometricUnlockUI();
     setTimeout(() => el.masterPassword.focus(), 80);
+  }
+
+  async function refreshBiometricUnlockUI() {
+    const vaultId = state.bundle?.vaultId;
+    const eligible = state.accessMode === 'unlock' && vaultId && (await KeyronBiometric.platformAvailable()) && (await KeyronBiometric.hasRecord(vaultId));
+    el.biometricUnlockBtn.hidden = !eligible;
+    el.biometricDivider.hidden = !eligible;
+  }
+
+  async function tryBiometricUnlock() {
+    const vaultId = state.bundle?.vaultId;
+    if (!vaultId) return;
+    el.biometricUnlockBtn.disabled = true;
+    try {
+      const password = await KeyronBiometric.unlock(vaultId);
+      await unlockVault(password);
+    } catch (error) {
+      const messages = {
+        USER_CANCELLED: 'Verificação biométrica cancelada.',
+        NO_RECORD: 'Biometria não ativada neste dispositivo.',
+        ASSERTION_FAILED: 'Não foi possível confirmar a biometria. Digite sua senha mestra.',
+        UNWRAP_FAILED: 'A biometria não confere mais. Digite sua senha mestra.'
+      };
+      toast(messages[error.message] || 'Não foi possível usar a biometria agora.', 'error', 4200);
+    } finally {
+      el.biometricUnlockBtn.disabled = false;
+    }
   }
 
   function configureMasterStep(mode) {
@@ -319,7 +375,7 @@
     el.masterPassword.value = '';
     el.masterConfirm.value = '';
     el.masterError.textContent = '';
-    el.masterPassword.type = 'password';
+    setPasswordVisibility(el.masterPassword, el.toggleMaster, false);
     el.masterConfirm.type = 'password';
     el.masterPassword.placeholder = mode === 'unlock' ? 'Digite sua senha mestra' : '';
 
@@ -342,7 +398,7 @@
       el.masterSubtitle.textContent = 'Digite sua senha mestra';
       el.masterConfirmGroup.hidden = true;
       el.masterStrengthWrap.hidden = true;
-      el.masterSubmit.textContent = 'Abrir cofre';
+      el.masterSubmit.textContent = 'Desbloquear';
       el.backGoogle.textContent = 'Trocar conta Google';
     }
   }
@@ -677,6 +733,13 @@
     const entryCount = state.vault.entries.length;
     const columnCount = state.vault.columns.length;
     el.vaultSummary.textContent = `${entryCount} ${entryCount === 1 ? 'credencial' : 'credenciais'} em ${columnCount} ${columnCount === 1 ? 'gaveta' : 'gavetas'}`;
+    const lastActivity = Array.isArray(state.vault.activity) ? state.vault.activity[0] : null;
+    if (lastActivity) {
+      el.vaultLastActivity.textContent = `Última adição — ${formatFullDateTime(lastActivity.at)}`;
+      el.vaultLastActivity.hidden = false;
+    } else {
+      el.vaultLastActivity.hidden = true;
+    }
   }
 
   function renderFilters() {
@@ -714,11 +777,13 @@
       const allColumnEntries = state.vault.entries.filter((entry) => entry.columnId === column.id);
       const visibleEntries = allColumnEntries.filter((entry) => KeyronVault.matches(entry, query, state.activeCategoryId, categories));
       const section = document.createElement('section');
-      section.className = 'vault-column';
+      section.className = `vault-column${column.collapsed ? ' is-collapsed' : ''}`;
       section.dataset.columnId = column.id;
 
       const head = document.createElement('div');
       head.className = 'column-head';
+      const collapseBtn = columnAction(column.collapsed ? '▸' : '▾', 'column-collapse', column.collapsed ? 'Expandir gaveta' : 'Retrair gaveta');
+      collapseBtn.classList.add('column-collapse-btn');
       const icon = document.createElement('span');
       icon.className = 'column-icon';
       icon.textContent = column.icon;
@@ -738,7 +803,7 @@
         columnAction('✎', 'column-edit', 'Editar gaveta'),
         columnAction('×', 'column-delete', 'Excluir gaveta')
       );
-      head.append(icon, title, actions);
+      head.append(collapseBtn, icon, title, actions);
 
       const body = document.createElement('div');
       body.className = 'column-body';
@@ -761,6 +826,12 @@
       add.textContent = '+ Adicionar nesta gaveta';
       section.append(head, body, add);
       el.board.appendChild(section);
+    }
+
+    if (el.collapseAll) {
+      const anyExpanded = state.vault.columns.some((c) => !c.collapsed);
+      el.collapseAll.textContent = anyExpanded ? 'Retrair tudo' : 'Expandir tudo';
+      el.collapseAll.hidden = state.vault.columns.length < 2;
     }
   }
 
@@ -851,7 +922,7 @@
     el.fUrl.value = entry?.url || '';
     el.fSecret.value = entry?.secret || '';
     el.fNotes.value = entry?.notes || '';
-    el.fPassword.type = 'password';
+    setPasswordVisibility(el.fPassword, el.togglePassword, false);
     updatePasswordStrength();
     renderLogoPreview();
     el.entryDialog.showModal();
@@ -980,6 +1051,7 @@
     if (!column) return;
     try {
       if (action === 'column-edit') return openColumnDialog(columnId);
+      if (action === 'column-collapse') KeyronVault.toggleColumnCollapsed(state.vault, columnId);
       if (action === 'column-left') KeyronVault.moveColumn(state.vault, columnId, -1);
       if (action === 'column-right') KeyronVault.moveColumn(state.vault, columnId, 1);
       if (action === 'column-delete') {
@@ -1050,6 +1122,67 @@
     el.clipboard.value = String(state.vault.preferences?.clipboardClearSeconds || 20);
     const bytes = new Blob([JSON.stringify(state.bundle)]).size;
     el.storageInfo.textContent = `Cofre cifrado neste dispositivo: ${formatBytes(bytes)}`;
+    renderActivity();
+    refreshBiometricSettingsUI();
+  }
+
+  async function refreshBiometricSettingsUI() {
+    const supported = await KeyronBiometric.platformAvailable();
+    el.biometricSection.hidden = !supported;
+    if (!supported) return;
+    const enrolled = await KeyronBiometric.hasRecord(state.vault.id);
+    el.biometricEnableRow.hidden = enrolled;
+    el.biometricActiveRow.hidden = !enrolled;
+    el.biometricEnableError.textContent = '';
+    el.biometricConfirmPassword.value = '';
+  }
+
+  async function enableBiometric() {
+    const typed = el.biometricConfirmPassword.value;
+    if (!typed) {
+      el.biometricEnableError.textContent = 'Digite sua senha mestra para confirmar.';
+      return;
+    }
+    el.biometricEnableBtn.disabled = true;
+    el.biometricEnableError.textContent = '';
+    const originalLabel = el.biometricEnableBtn.textContent;
+    el.biometricEnableBtn.textContent = 'Confirmando…';
+    try {
+      await KeyronCrypto.unlockBundle(typed, state.bundle);
+    } catch {
+      el.biometricEnableError.textContent = 'Senha mestra incorreta.';
+      el.biometricEnableBtn.disabled = false;
+      el.biometricEnableBtn.textContent = originalLabel;
+      return;
+    }
+
+    el.biometricEnableBtn.textContent = 'Aguardando biometria…';
+    try {
+      await KeyronBiometric.enroll(state.vault.id, typed, state.googleUser?.email);
+      el.biometricConfirmPassword.value = '';
+      await refreshBiometricSettingsUI();
+      toast('Biometria ativada neste dispositivo.', 'success');
+    } catch (error) {
+      const messages = {
+        USER_CANCELLED: 'Verificação biométrica cancelada.',
+        PLATFORM_UNAVAILABLE: 'Este dispositivo não tem biometria disponível.',
+        PRF_NOT_SUPPORTED: 'Este navegador não suporta o modo seguro necessário para biometria.',
+        CREATE_FAILED: 'Não foi possível registrar a biometria neste dispositivo.',
+        PRF_EVAL_FAILED: 'Não foi possível confirmar a biometria. Tente novamente.'
+      };
+      el.biometricEnableError.textContent = messages[error.message] || 'Não foi possível ativar a biometria agora.';
+    } finally {
+      el.biometricEnableBtn.disabled = false;
+      el.biometricEnableBtn.textContent = originalLabel;
+    }
+  }
+
+  async function disableBiometric() {
+    const confirmed = await askConfirm({ title: 'Desativar biometria', message: 'A senha mestra guardada localmente para desbloqueio biométrico será apagada deste dispositivo.', confirmLabel: 'Desativar', kind: 'danger', kicker: 'DESBLOQUEIO BIOMÉTRICO' });
+    if (!confirmed) return;
+    await KeyronBiometric.forget(state.vault.id);
+    await refreshBiometricSettingsUI();
+    toast('Biometria desativada neste dispositivo.', 'info');
   }
 
   async function savePreferences() {
@@ -1259,6 +1392,36 @@
     return `${value.toLocaleString('pt-BR', { maximumFractionDigits: unit ? 1 : 0 })} ${units[unit]}`;
   }
 
+  function formatFullDateTime(iso) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    const datePart = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timePart = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return `${datePart} às ${timePart}`;
+  }
+
+  const ACTIVITY_LABELS = { entry: 'Nova credencial', column: 'Nova gaveta', category: 'Nova categoria' };
+
+  function renderActivity() {
+    if (!el.activityList) return;
+    const activity = Array.isArray(state.vault?.activity) ? state.vault.activity : [];
+    el.activityList.replaceChildren();
+    el.activityEmpty.hidden = activity.length > 0;
+    for (const item of activity.slice(0, 25)) {
+      const row = document.createElement('div');
+      row.className = 'activity-row';
+      const kind = document.createElement('span');
+      kind.className = `activity-kind activity-kind--${item.type}`;
+      kind.textContent = ACTIVITY_LABELS[item.type] || 'Adição';
+      const label = document.createElement('b');
+      label.textContent = item.label;
+      const when = document.createElement('time');
+      when.textContent = formatFullDateTime(item.at);
+      row.append(kind, label, when);
+      el.activityList.appendChild(row);
+    }
+  }
+
   function closeAllDialogs() {
     $$('dialog[open]').forEach((dialog) => dialog.close());
   }
@@ -1285,7 +1448,8 @@
     el.googleBtn.addEventListener('click', () => startGoogleVerification(true));
     el.masterForm.addEventListener('submit', handleMasterSubmit);
     el.masterPassword.addEventListener('input', updateMasterStrength);
-    el.toggleMaster.addEventListener('click', () => { el.masterPassword.type = el.masterPassword.type === 'password' ? 'text' : 'password'; });
+    el.toggleMaster.addEventListener('click', () => togglePasswordVisibility(el.masterPassword, el.toggleMaster));
+    el.biometricUnlockBtn.addEventListener('click', () => tryBiometricUnlock());
     el.backGoogle.addEventListener('click', () => {
       if (state.accessMode === 'import') {
         state.pendingImportBundle = null;
@@ -1304,6 +1468,11 @@
     el.addEntry.addEventListener('click', () => openEntryDialog());
     el.emptyAdd.addEventListener('click', () => openEntryDialog());
     el.addColumn.addEventListener('click', () => openColumnDialog());
+    el.collapseAll.addEventListener('click', async () => {
+      const anyExpanded = state.vault.columns.some((c) => !c.collapsed);
+      KeyronVault.setAllColumnsCollapsed(state.vault, anyExpanded);
+      await persistVault({ reason: 'column-collapse-all' }).catch(() => renderBoard());
+    });
     el.manageCategories.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
     el.settingsBtn.addEventListener('click', () => { renderSettings(); el.settingsDialog.showModal(); });
     el.syncChip.addEventListener('click', reconnectOrSyncDrive);
@@ -1359,10 +1528,10 @@
     el.deleteEntry.addEventListener('click', deleteCurrentEntry);
     el.fName.addEventListener('input', () => { if (!state.pendingLogo) renderLogoPreview(); });
     el.fPassword.addEventListener('input', updatePasswordStrength);
-    el.togglePassword.addEventListener('click', () => { el.fPassword.type = el.fPassword.type === 'password' ? 'text' : 'password'; });
+    el.togglePassword.addEventListener('click', () => togglePasswordVisibility(el.fPassword, el.togglePassword));
     el.generatePassword.addEventListener('click', () => {
       el.fPassword.value = KeyronGenerator.generate(24);
-      el.fPassword.type = 'text';
+      setPasswordVisibility(el.fPassword, el.togglePassword, true);
       updatePasswordStrength();
     });
     el.logoInput.addEventListener('change', async () => {
@@ -1398,6 +1567,9 @@
     el.importInput.addEventListener('change', () => prepareImport(el.importInput.files?.[0]));
     el.backupNow.addEventListener('click', createDriveSnapshot);
     el.signout.addEventListener('click', () => lockVault({ signOut: true }).catch(() => null));
+    el.biometricEnableBtn.addEventListener('click', enableBiometric);
+    el.biometricConfirmPassword.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); enableBiometric(); } });
+    el.biometricDisableBtn.addEventListener('click', disableBiometric);
 
     $$('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog)?.close()));
 
@@ -1433,6 +1605,8 @@
 
   async function init() {
     bindEvents();
+    setPasswordVisibility(el.masterPassword, el.toggleMaster, false);
+    setPasswordVisibility(el.fPassword, el.togglePassword, false);
     const stored = await KeyronStorage.loadCurrent();
     const pending = await KeyronSaveEngine.loadPendingBundle();
     state.bundle = pending && parseTime(pending) >= parseTime(stored) ? pending : stored;

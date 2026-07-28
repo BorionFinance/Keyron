@@ -1,4 +1,4 @@
-# Modelo de segurança — Keyron v0.3.8
+# Modelo de segurança — Keyron v0.3.9
 
 ## O que é protegido
 

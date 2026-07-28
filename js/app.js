@@ -644,7 +644,6 @@
     el.accessShell.hidden = true;
     el.appScreen.hidden = false;
     state.collapsedColumns = new Set(state.vault.columns.map((c) => c.id));
-    applyBoardColumns();
     renderAll();
     resetAutoLockTimer();
     setSyncStatus(state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline'));
@@ -888,6 +887,74 @@
     }
   }
 
+  function computeBoardTrackCount() {
+    const columnCount = state.vault.columns.length;
+    const pref = state.vault.preferences?.boardColumns || 'auto';
+    if (pref !== 'auto') return Math.max(1, Math.min(Number(pref), columnCount));
+    const width = el.board.clientWidth || window.innerWidth;
+    const minTrackWidth = 260;
+    const gap = 14;
+    const estimate = Math.floor((width + gap) / (minTrackWidth + gap));
+    return Math.max(1, Math.min(estimate, columnCount));
+  }
+
+  function buildColumnSection(column, categories, query) {
+    const allColumnEntries = state.vault.entries.filter((entry) => entry.columnId === column.id);
+    const visibleEntries = allColumnEntries.filter((entry) => KeyronVault.matches(entry, query, state.activeCategoryId, categories));
+    const filterActive = Boolean(query || state.activeCategoryId);
+    const isCollapsed = !filterActive && state.collapsedColumns.has(column.id);
+    const section = document.createElement('section');
+    section.className = `vault-column${isCollapsed ? ' is-collapsed' : ''}`;
+    section.dataset.columnId = column.id;
+
+    const head = document.createElement('div');
+    head.className = 'column-head';
+    const collapseBtn = columnAction(isCollapsed ? '▸' : '▾', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
+    collapseBtn.classList.add('column-collapse-btn');
+    const icon = document.createElement('span');
+    icon.className = 'column-icon';
+    icon.textContent = column.icon;
+    const title = document.createElement('div');
+    title.className = 'column-title';
+    const strong = document.createElement('strong');
+    strong.textContent = column.name;
+    const count = document.createElement('span');
+    count.textContent = `${allColumnEntries.length} ${allColumnEntries.length === 1 ? 'acesso' : 'acessos'}`;
+    title.append(strong, count);
+
+    const actions = document.createElement('div');
+    actions.className = 'column-actions';
+    actions.append(
+      columnAction('←', 'column-left', 'Mover gaveta para a esquerda'),
+      columnAction('→', 'column-right', 'Mover gaveta para a direita'),
+      columnAction('✎', 'column-edit', 'Editar gaveta'),
+      columnAction('×', 'column-delete', 'Excluir gaveta')
+    );
+    head.append(collapseBtn, icon, title, actions);
+
+    const body = document.createElement('div');
+    body.className = 'column-body';
+    body.dataset.dropColumnId = column.id;
+    if (!visibleEntries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'column-empty';
+      empty.textContent = query || state.activeCategoryId ? 'Nenhuma credencial neste filtro.' : 'Arraste uma credencial para esta gaveta.';
+      body.appendChild(empty);
+    } else {
+      visibleEntries
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+        .forEach((entry) => body.appendChild(createCredentialCard(entry, categories.get(entry.categoryId))));
+    }
+
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'column-add';
+    add.dataset.action = 'entry-add-column';
+    add.textContent = '+ Adicionar nesta gaveta';
+    section.append(head, body, add);
+    return section;
+  }
+
   function renderBoard() {
     el.board.replaceChildren();
     const hasEntries = state.vault.entries.length > 0;
@@ -896,62 +963,20 @@
 
     const categories = new Map(state.vault.categories.map((category) => [category.id, category]));
     const query = el.search.value;
+    const sections = state.vault.columns.map((column) => buildColumnSection(column, categories, query));
 
-    for (const column of state.vault.columns) {
-      const allColumnEntries = state.vault.entries.filter((entry) => entry.columnId === column.id);
-      const visibleEntries = allColumnEntries.filter((entry) => KeyronVault.matches(entry, query, state.activeCategoryId, categories));
-      const filterActive = Boolean(query || state.activeCategoryId);
-      const isCollapsed = !filterActive && state.collapsedColumns.has(column.id);
-      const section = document.createElement('section');
-      section.className = `vault-column${isCollapsed ? ' is-collapsed' : ''}`;
-      section.dataset.columnId = column.id;
-
-      const head = document.createElement('div');
-      head.className = 'column-head';
-      const collapseBtn = columnAction(isCollapsed ? '▸' : '▾', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
-      collapseBtn.classList.add('column-collapse-btn');
-      const icon = document.createElement('span');
-      icon.className = 'column-icon';
-      icon.textContent = column.icon;
-      const title = document.createElement('div');
-      title.className = 'column-title';
-      const strong = document.createElement('strong');
-      strong.textContent = column.name;
-      const count = document.createElement('span');
-      count.textContent = `${allColumnEntries.length} ${allColumnEntries.length === 1 ? 'acesso' : 'acessos'}`;
-      title.append(strong, count);
-
-      const actions = document.createElement('div');
-      actions.className = 'column-actions';
-      actions.append(
-        columnAction('←', 'column-left', 'Mover gaveta para a esquerda'),
-        columnAction('→', 'column-right', 'Mover gaveta para a direita'),
-        columnAction('✎', 'column-edit', 'Editar gaveta'),
-        columnAction('×', 'column-delete', 'Excluir gaveta')
-      );
-      head.append(collapseBtn, icon, title, actions);
-
-      const body = document.createElement('div');
-      body.className = 'column-body';
-      body.dataset.dropColumnId = column.id;
-      if (!visibleEntries.length) {
-        const empty = document.createElement('div');
-        empty.className = 'column-empty';
-        empty.textContent = query || state.activeCategoryId ? 'Nenhuma credencial neste filtro.' : 'Arraste uma credencial para esta gaveta.';
-        body.appendChild(empty);
-      } else {
-        visibleEntries
-          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-          .forEach((entry) => body.appendChild(createCredentialCard(entry, categories.get(entry.categoryId))));
-      }
-
-      const add = document.createElement('button');
-      add.type = 'button';
-      add.className = 'column-add';
-      add.dataset.action = 'entry-add-column';
-      add.textContent = '+ Adicionar nesta gaveta';
-      section.append(head, body, add);
-      el.board.appendChild(section);
+    const isMobileLayout = window.matchMedia('(max-width: 720px)').matches;
+    if (isMobileLayout) {
+      sections.forEach((section) => el.board.appendChild(section));
+    } else {
+      const trackCount = computeBoardTrackCount();
+      const tracks = Array.from({ length: trackCount }, () => {
+        const track = document.createElement('div');
+        track.className = 'board-track';
+        return track;
+      });
+      sections.forEach((section, index) => tracks[index % trackCount].appendChild(section));
+      tracks.forEach((track) => el.board.appendChild(track));
     }
 
     if (el.collapseAll) {
@@ -1249,11 +1274,6 @@
     renderCategoryDialog();
   }
 
-  function applyBoardColumns() {
-    const value = state.vault?.preferences?.boardColumns || 'auto';
-    el.board.style.setProperty('--board-columns', value === 'auto' ? 'auto-fit' : value);
-  }
-
   function renderSettings() {
     if (!state.vault || !state.bundle) return;
     el.autoLock.value = String(state.vault.preferences?.autoLockMinutes || 5);
@@ -1333,7 +1353,7 @@
       clipboardClearSeconds: Number(el.clipboard.value),
       boardColumns: el.boardColumns.value
     };
-    applyBoardColumns();
+    renderBoard();
     await persistVault({ render: false, reason: 'preferences-update' });
     resetAutoLockTimer();
     renderSettings();
@@ -1957,6 +1977,13 @@
     });
     window.addEventListener('pagehide', () => {
       KeyronSaveEngine.flush(700).catch(() => null);
+    });
+    let boardResizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(boardResizeTimer);
+      boardResizeTimer = setTimeout(() => {
+        if (state.vault && !el.appScreen.hidden) renderBoard();
+      }, 180);
     });
   }
 

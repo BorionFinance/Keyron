@@ -36,7 +36,10 @@
     dragScrollFrame: null,
     dragScrollVelocity: { x: 0, y: 0 },
     biometricAutoAttempted: false,
-    breachScanInFlight: false
+    breachScanInFlight: false,
+    pendingRecoveryReveal: null,
+    recoveryStage: 'code',
+    pendingRecoveryDek: null
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -62,6 +65,7 @@
     toggleMaster: $('#toggle-master'),
     biometricUnlockBtn: $('#biometric-unlock-btn'),
     biometricDivider: $('#biometric-divider'),
+    forgotMasterBtn: $('#forgot-master-btn'),
     backGoogle: $('#back-google-btn'),
     appScreen: $('#app-screen'),
     search: $('#search-input'),
@@ -163,7 +167,27 @@
     confirmTitle: $('#confirm-title'),
     confirmMessage: $('#confirm-message'),
     confirmCancel: $('#confirm-cancel'),
-    confirmOk: $('#confirm-ok')
+    confirmOk: $('#confirm-ok'),
+    recoveryStep: $('#recovery-step'),
+    recoveryForm: $('#recovery-form'),
+    recoveryCodeInput: $('#recovery-code-input'),
+    recoveryNewpassGroup: $('#recovery-newpass-group'),
+    recoveryNewPassword: $('#recovery-new-password'),
+    recoveryToggleNew: $('#recovery-toggle-new'),
+    recoveryStrengthBar: $('#recovery-strength-bar'),
+    recoveryStrengthLabel: $('#recovery-strength-label'),
+    recoveryNewPasswordConfirm: $('#recovery-new-password-confirm'),
+    recoveryError: $('#recovery-error'),
+    recoverySubmit: $('#recovery-submit'),
+    recoveryBackBtn: $('#recovery-back-btn'),
+    recoveryRevealDialog: $('#recovery-reveal-dialog'),
+    recoveryCodeValue: $('#recovery-code-value'),
+    recoveryCodeCopy: $('#recovery-code-copy'),
+    recoveryRevealAck: $('#recovery-reveal-ack'),
+    recoveryRevealClose: $('#recovery-reveal-close'),
+    recoveryStatusBadge: $('#recovery-status-badge'),
+    recoveryCreatedAt: $('#recovery-created-at'),
+    recoveryRegenerateBtn: $('#recovery-regenerate-btn')
   };
 
   function toast(message, kind = 'info', duration = 3400) {
@@ -368,6 +392,7 @@
     el.accessShell.hidden = false;
     el.googleStep.hidden = false;
     el.masterStep.hidden = true;
+    el.recoveryStep.hidden = true;
   }
 
   function prefersBiometricFirst() {
@@ -380,10 +405,163 @@
     el.accessShell.hidden = false;
     el.googleStep.hidden = true;
     el.masterStep.hidden = false;
+    el.recoveryStep.hidden = true;
     refreshBiometricUnlockUI({ autoAttempt: true }).catch(() => {
       document.body.classList.remove('biometric-first');
       setTimeout(() => el.masterPassword.focus(), 80);
     });
+  }
+
+  function showRecoveryStep() {
+    document.body.dataset.screen = 'access';
+    el.accessShell.hidden = false;
+    el.googleStep.hidden = true;
+    el.masterStep.hidden = true;
+    el.recoveryStep.hidden = false;
+    state.recoveryStage = 'code';
+    state.pendingRecoveryDek = null;
+    el.recoveryForm.reset();
+    el.recoveryError.textContent = '';
+    el.recoveryCodeInput.disabled = false;
+    el.recoveryNewpassGroup.hidden = true;
+    el.recoverySubmit.textContent = 'Verificar chave';
+    setTimeout(() => el.recoveryCodeInput.focus(), 70);
+  }
+
+  function backToMasterFromRecovery() {
+    state.pendingRecoveryDek = null;
+    showMasterStep();
+  }
+
+  function updateRecoveryStrength() {
+    const score = KeyronGenerator.strength(el.recoveryNewPassword.value);
+    el.recoveryStrengthBar.style.width = `${score}%`;
+    el.recoveryStrengthBar.dataset.level = score >= 72 ? 'strong' : score >= 44 ? 'medium' : 'weak';
+    el.recoveryStrengthLabel.textContent = score >= 72 ? 'Boa força. Guarde esta frase em um lugar seguro.' : score >= 44 ? 'Razoável, mas uma frase mais longa será melhor.' : 'Use pelo menos 12 caracteres, de preferência uma frase longa.';
+  }
+
+  async function handleRecoverySubmit(event) {
+    event.preventDefault();
+    el.recoveryError.textContent = '';
+
+    if (state.recoveryStage === 'code') {
+      const code = el.recoveryCodeInput.value.trim();
+      if (!code) return;
+      el.recoverySubmit.disabled = true;
+      try {
+        const dek = await KeyronCrypto.unlockWithRecoveryCode(code, state.bundle);
+        state.pendingRecoveryDek = dek;
+        state.recoveryStage = 'newpass';
+        el.recoveryCodeInput.disabled = true;
+        el.recoveryNewpassGroup.hidden = false;
+        el.recoverySubmit.textContent = 'Definir nova senha e desbloquear';
+        setTimeout(() => el.recoveryNewPassword.focus(), 70);
+      } catch (error) {
+        el.recoveryError.textContent = 'Chave de recuperação inválida.';
+      } finally {
+        el.recoverySubmit.disabled = false;
+      }
+      return;
+    }
+
+    const next = el.recoveryNewPassword.value;
+    const confirmValue = el.recoveryNewPasswordConfirm.value;
+    if (next.length < 12) {
+      el.recoveryError.textContent = 'A nova senha mestra precisa ter pelo menos 12 caracteres.';
+      return;
+    }
+    if (KeyronGenerator.strength(next) < 44) {
+      el.recoveryError.textContent = 'Essa nova senha ainda está fraca. Use uma frase maior e mais difícil de adivinhar.';
+      return;
+    }
+    if (next !== confirmValue) {
+      el.recoveryError.textContent = 'As duas senhas novas não são iguais.';
+      return;
+    }
+
+    el.recoverySubmit.disabled = true;
+    setBusy(true, 'Restaurando o acesso…', 'Validando a chave de recuperação e definindo a nova senha mestra.');
+    try {
+      const dek = state.pendingRecoveryDek;
+      const decryptedVault = await KeyronCrypto.decryptPayload(dek, state.bundle);
+      const normalized = KeyronVault.normalize(decryptedVault);
+      const rewrapped = await KeyronCrypto.changePassword(dek, next, state.bundle);
+
+      const hadBiometric = await KeyronBiometric.hasRecord(normalized.id);
+      if (hadBiometric) await KeyronBiometric.forget(normalized.id);
+
+      state.key = dek;
+      state.bundle = rewrapped;
+      state.vault = normalized;
+      KeyronSaveEngine.initialize(state.bundle);
+      state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'password-recovery');
+      state.needsInitialPush = true;
+      state.failedAttempts = 0;
+      state.pendingRecoveryDek = null;
+
+      openApplication();
+      scheduleDriveSync(50);
+      toast('Acesso restaurado com a chave de recuperação. Uma nova senha mestra foi definida.', 'success', 6000);
+    } catch (error) {
+      console.error(error);
+      el.recoveryError.textContent = 'Não foi possível concluir a recuperação agora. Tente novamente.';
+    } finally {
+      el.recoverySubmit.disabled = false;
+      setBusy(false);
+    }
+  }
+
+  function showRecoveryCodeReveal(code) {
+    el.recoveryCodeValue.textContent = code;
+    el.recoveryRevealAck.checked = false;
+    el.recoveryRevealClose.disabled = true;
+    el.recoveryRevealDialog.showModal();
+  }
+
+  async function handleRecoveryRegenerate() {
+    const confirmed = await askConfirm({
+      title: 'Gerar nova chave de recuperação',
+      message: 'A chave de recuperação atual deixará de funcionar. Você verá a nova chave uma única vez — guarde-a antes de fechar.',
+      confirmLabel: 'Gerar nova chave',
+      kind: 'danger',
+      kicker: 'RECUPERAÇÃO'
+    });
+    if (!confirmed) return;
+
+    el.recoveryRegenerateBtn.disabled = true;
+    try {
+      const result = await KeyronCrypto.regenerateRecovery(state.key, state.bundle);
+      state.bundle = result.bundle;
+      state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'recovery-regenerate');
+      renderRecoveryStatus();
+      try {
+        await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
+        await KeyronSaveEngine.confirmRemote(state.bundle);
+        toast('Nova chave de recuperação gerada e sincronizada.', 'success');
+      } catch (driveError) {
+        console.error(driveError);
+        scheduleSyncRetry();
+        toast('Nova chave de recuperação gerada. O Drive será atualizado assim que possível.', 'warning');
+      }
+      showRecoveryCodeReveal(result.recoveryCode);
+    } catch (error) {
+      console.error(error);
+      toast('Não foi possível gerar uma nova chave agora.', 'error');
+    } finally {
+      el.recoveryRegenerateBtn.disabled = false;
+    }
+  }
+
+  function renderRecoveryStatus() {
+    if (!el.recoveryCreatedAt) return;
+    const recovery = state.bundle?.recovery;
+    if (recovery?.createdAt) {
+      el.recoveryStatusBadge.textContent = 'ATIVA';
+      el.recoveryCreatedAt.textContent = `Chave de recuperação ativa desde ${formatFullDateTime(recovery.createdAt)}.`;
+    } else {
+      el.recoveryStatusBadge.textContent = 'INDISPONÍVEL';
+      el.recoveryCreatedAt.textContent = 'Uma chave de recuperação será criada na próxima sincronização.';
+    }
   }
 
   async function refreshBiometricUnlockUI({ autoAttempt = false } = {}) {
@@ -528,15 +706,21 @@
   }
 
   async function changeMasterPassword(newPassword) {
-    setBusy(true, 'Trocando a senha mestra…', 'Recriando a criptografia do cofre inteiro. Não feche o app.');
+    setBusy(true, 'Trocando a senha mestra…', 'Protegendo o cofre com a nova senha.');
     try {
       const oldBundle = state.bundle;
-      const migrated = await KeyronCrypto.rekeyBundle(newPassword, state.vault, state.vault.id);
       await KeyronStorage.saveRecovery(oldBundle).catch(() => null);
       if (KeyronDrive.isConnected()) await KeyronDrive.createSnapshot(oldBundle).catch(() => null);
 
-      state.key = migrated.key;
-      state.bundle = migrated.bundle;
+      const hasKeyManagement = Boolean(state.bundle.wrappedKey);
+      if (hasKeyManagement) {
+        state.bundle = await KeyronCrypto.changePassword(state.key, newPassword, state.bundle);
+      } else {
+        const migrated = await KeyronCrypto.rekeyBundle(newPassword, state.vault, state.vault.id);
+        state.key = migrated.key;
+        state.bundle = migrated.bundle;
+        if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
+      }
       KeyronSaveEngine.initialize(state.bundle);
       state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'password-change');
       state.needsInitialPush = true;
@@ -547,6 +731,12 @@
       el.cpForm.reset();
       el.cpStrengthBar.style.width = '0%';
       renderSettings();
+
+      if (state.pendingRecoveryReveal) {
+        const freshCode = state.pendingRecoveryReveal;
+        state.pendingRecoveryReveal = null;
+        showRecoveryCodeReveal(freshCode);
+      }
 
       try {
         await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
@@ -605,6 +795,7 @@
       const created = await KeyronCrypto.createBundle(password, state.vault);
       state.key = created.key;
       state.bundle = created.bundle;
+      state.pendingRecoveryReveal = created.recoveryCode;
       KeyronSaveEngine.initialize(state.bundle);
       state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-create');
       state.needsInitialPush = true;
@@ -652,7 +843,7 @@
       const rawBundle = state.bundle;
       const result = await KeyronCrypto.unlockBundle(password, rawBundle);
       const normalized = KeyronVault.normalize(result.vault);
-      const needsMigration = result.legacy || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS;
+      const needsMigration = result.legacy || !rawBundle.wrappedKey || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS;
 
       if (needsMigration) {
         const migrated = await KeyronCrypto.rekeyBundle(password, normalized, normalized.id);
@@ -661,6 +852,7 @@
         state.vault = normalized;
         state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-migration');
         state.needsInitialPush = true;
+        if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
         toast('Cofre antigo migrado para a estrutura Keyron sem perder credenciais.', 'success', 5000);
       } else {
         state.key = result.key;
@@ -698,6 +890,28 @@
     setTimeout(() => document.body.classList.remove('vault-entering'), 760);
     setTimeout(() => el.search.focus(), 180);
     setTimeout(() => scheduleWeeklyBreachCheck(), 1200);
+
+    KeyronSound.playUnlock();
+    setTimeout(() => {
+      const glyph = $('.lock-glyph', el.lockBtn);
+      glyph?.classList.add('is-unlocking');
+      setTimeout(() => glyph?.classList.remove('is-unlocking'), 700);
+    }, 120);
+
+    if (state.pendingRecoveryReveal) {
+      const code = state.pendingRecoveryReveal;
+      state.pendingRecoveryReveal = null;
+      setTimeout(() => showRecoveryCodeReveal(code), 820);
+    }
+  }
+
+  function handleLockClick() {
+    const glyph = $('.lock-glyph', el.lockBtn);
+    KeyronSound.playLock();
+    glyph?.classList.remove('is-unlocking');
+    glyph?.classList.add('is-locking');
+    setTimeout(() => glyph?.classList.remove('is-locking'), 420);
+    setTimeout(() => { lockVault().catch(() => null); }, 160);
   }
 
   async function lockVault({ signOut = false } = {}) {
@@ -1034,7 +1248,8 @@
 
     if (el.collapseAll) {
       const anyExpanded = state.vault.columns.some((c) => !state.collapsedColumns.has(c.id));
-      el.collapseAll.querySelector('.btn-icon').textContent = anyExpanded ? '▾' : '▸';
+      el.collapseAll.classList.toggle('is-all-collapsed', !anyExpanded);
+      el.collapseAll.setAttribute('aria-expanded', String(anyExpanded));
       el.collapseAll.querySelector('.btn-label').textContent = anyExpanded ? 'Retrair tudo' : 'Expandir tudo';
       el.collapseAll.hidden = state.vault.columns.length < 2;
     }
@@ -1376,13 +1591,33 @@
       const entry = byId.get(result.entryId);
       const row = document.createElement('div');
       row.className = 'breach-result';
+      const info = document.createElement('div');
+      info.className = 'breach-result-info';
       const name = document.createElement('b');
       name.textContent = entry.name;
       const count = document.createElement('span');
       count.textContent = `${Number(result.count).toLocaleString('pt-BR')} ocorrência(s) conhecida(s)`;
-      row.append(name, count);
+      info.append(name, count);
+      const fixBtn = document.createElement('button');
+      fixBtn.type = 'button';
+      fixBtn.className = 'btn btn--ghost breach-fix-btn';
+      fixBtn.textContent = 'Alterar agora';
+      fixBtn.addEventListener('click', () => openBreachFix(entry.id));
+      row.append(info, fixBtn);
       el.breachResults.appendChild(row);
     }
+  }
+
+  function openBreachFix(entryId) {
+    el.settingsDialog.close();
+    openEntryDialog(entryId);
+    toast('Nova senha forte gerada. Revise e salve para proteger essa credencial.', 'info', 5000);
+    setTimeout(() => {
+      el.fPassword.value = KeyronGenerator.generate(24);
+      setPasswordVisibility(el.fPassword, el.togglePassword, true);
+      updatePasswordStrength();
+      el.fPassword.focus();
+    }, 90);
   }
 
   function renderSettings() {
@@ -1395,6 +1630,7 @@
     el.storageInfo.textContent = `Cofre cifrado neste dispositivo: ${formatBytes(bytes)}`;
     renderActivity();
     renderBreachResults();
+    renderRecoveryStatus();
     refreshBiometricSettingsUI();
     populateCsvImportColumn();
     el.cpError.textContent = '';
@@ -1565,10 +1801,11 @@
       let vault = KeyronVault.normalize(result.vault);
       let bundle = state.pendingImportBundle;
       let key = result.key;
-      if (result.legacy || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS) {
+      if (result.legacy || !bundle.wrappedKey || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS) {
         const migrated = await KeyronCrypto.rekeyBundle(password, vault, vault.id);
         bundle = migrated.bundle;
         key = migrated.key;
+        if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
       }
 
       await KeyronStorage.saveRecovery(state.preImportBundle).catch(() => null);
@@ -2057,6 +2294,18 @@
     el.masterPassword.addEventListener('input', updateMasterStrength);
     el.toggleMaster.addEventListener('click', () => togglePasswordVisibility(el.masterPassword, el.toggleMaster));
     el.biometricUnlockBtn.addEventListener('click', () => tryBiometricUnlock());
+    el.forgotMasterBtn.addEventListener('click', () => showRecoveryStep());
+    el.recoveryBackBtn.addEventListener('click', () => backToMasterFromRecovery());
+    el.recoveryForm.addEventListener('submit', handleRecoverySubmit);
+    el.recoveryNewPassword.addEventListener('input', updateRecoveryStrength);
+    el.recoveryToggleNew.addEventListener('click', () => togglePasswordVisibility(el.recoveryNewPassword, el.recoveryToggleNew));
+    el.recoveryRevealAck.addEventListener('change', () => {
+      el.recoveryRevealClose.disabled = !el.recoveryRevealAck.checked;
+    });
+    el.recoveryRevealClose.addEventListener('click', () => el.recoveryRevealDialog.close());
+    el.recoveryRevealDialog.addEventListener('cancel', (event) => event.preventDefault());
+    el.recoveryCodeCopy.addEventListener('click', () => copyValue(el.recoveryCodeValue.textContent, 'Chave de recuperação'));
+    el.recoveryRegenerateBtn.addEventListener('click', () => handleRecoveryRegenerate());
     el.backGoogle.addEventListener('click', () => {
       if (state.accessMode === 'import') {
         state.pendingImportBundle = null;
@@ -2090,7 +2339,7 @@
     });
     el.breachCheckBtn.addEventListener('click', () => runBreachCheck());
     el.syncChip.addEventListener('click', reconnectOrSyncDrive);
-    el.lockBtn.addEventListener('click', () => lockVault().catch(() => null));
+    el.lockBtn.addEventListener('click', () => handleLockClick());
     el.search.addEventListener('input', renderBoard);
     el.filterStrip.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-category-id]');

@@ -1,32 +1,31 @@
-# Keyron v0.4.0
+# Keyron v0.5.0
 
 Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
 
 ## O que mudou nesta versão
 
-- Nova ordenação manual das credenciais dentro de cada gaveta.
-- Arraste entre gavetas com indicador da posição exata.
-- Rolagem automática nas bordas e suporte à roda do mouse durante o arraste.
-- Novo ícone de expandir/retrair gavetas.
-- Biblioteca maior de símbolos para gavetas.
-- Edição de credencial preserva a posição da página ao fechar.
-- No mobile, a biometria é tentada antes de mostrar o teclado da senha mestra.
-- Animação de entrada ao desbloquear o cofre.
-- Fluxo Google sem forçar a seleção da mesma conta duas vezes; o seletor completo aparece apenas ao escolher “Trocar conta Google” ou sair.
-- Central de Configurações reorganizada em Segurança, Privacidade, Aparência, Dados, Atividade e Sobre.
-- Área “Por que o Keyron foi criado”, contando a evolução da planilha EVA para um cofre cifrado.
-- Verificação manual ou semanal de senhas encontradas em vazamentos usando HIBP Pwned Passwords com k-anonymity.
+- Chave de recuperação real: ao criar o cofre (ou migrar um cofre antigo), o Keyron gera um código de recuperação de alta entropia mostrado uma única vez. Com ele, dá para definir uma nova senha mestra sem perder nenhuma credencial, mesmo esquecendo a senha atual — sem perguntas pessoais e sem porta dos fundos.
+- Trocar a senha mestra agora só re-embrulha a chave de dados do cofre (muito mais rápido) e não invalida a chave de recuperação.
+- Opção em Configurações → Segurança para gerar uma nova chave de recuperação quando quiser (invalida a anterior).
+- Correção do bug de notificação/toast aparecendo dentro do fluxo da página em vez de flutuar por cima.
+- Botão "Alterar agora" nas senhas encontradas em vazamentos, já abrindo a credencial com uma senha forte nova gerada.
+- Ícones das Configurações padronizados em SVG (sem emojis soltos).
+- Som e animação de bloqueio/desbloqueio sintetizados localmente (sem arquivo de áudio).
+- Ícone instalável com fundo transparente.
+- Link para o Hub Borion no topo do app.
+- Splash de entrada suave e pulso azul contínuo nas telas de Entrar/Desbloquear.
+- Área de Atividade com rolagem maior.
+- Login com Google simplificado para pedir apenas o escopo do Drive — remove telas de consentimento extras que exigiam mais de um clique para autenticar.
 
-## Segurança mantida
-
-A versão 0.4.0 não reduz a proteção criptográfica da 0.3.9:
+## Segurança
 
 - AES-256-GCM com autenticação do conteúdo.
 - PBKDF2-HMAC-SHA-256 com 600.000 iterações.
+- Chave de dados (DEK) aleatória e independente da senha, embrulhada separadamente pela senha mestra e pela chave de recuperação — nenhuma delas decifra a outra.
 - AAD vinculado ao identificador do cofre.
-- Senha mestra nunca persistida em texto puro.
+- Senha mestra e chave de recuperação nunca persistidas em texto puro.
 - Conteúdo cifrado antes de ser enviado ao Drive.
-- Escopo Google `drive.file`.
+- Escopo Google `drive.file` apenas.
 - Biometria protegida localmente por WebAuthn/PRF quando o navegador oferece suporte.
 
 ## Verificação de vazamentos
@@ -37,9 +36,9 @@ Os resultados — identificador da credencial, quantidade conhecida e data — f
 
 ## Recuperação da senha mestra
 
-O Keyron não usa CPF, CEP, telefone, nome da mãe ou perguntas pessoais para liberar o cofre. Esses dados são descobríveis e criariam uma porta dos fundos.
+O Keyron não usa CPF, CEP, telefone, nome da mãe ou perguntas pessoais para liberar o cofre — esses dados são descobríveis e criariam uma porta dos fundos.
 
-O e-mail identifica a conta Google e permite acessar o arquivo cifrado, mas não consegue descriptografá-lo. Guarde a senha mestra em local seguro e mantenha a biometria ativada nos dispositivos confiáveis.
+Em vez disso, toda vez que um cofre é criado (ou um cofre antigo é migrado para essa versão), o Keyron gera uma **chave de recuperação** aleatória e mostra-a uma única vez, na tela, para o usuário guardar em local seguro fora do aparelho. Essa chave consegue destravar o cofre e definir uma nova senha mestra — sem apagar nenhuma credencial — mesmo que a senha atual seja esquecida. Sem a senha mestra e sem essa chave, o conteúdo permanece inacessível, inclusive para o próprio Keyron.
 
 ## Publicação
 

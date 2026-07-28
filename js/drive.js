@@ -5,7 +5,7 @@ const KeyronDrive = (() => {
 
   const API = 'https://www.googleapis.com/drive/v3';
   const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-  const SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
+  const SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const ROOT_NAME = 'Keyron';
   const BACKUP_FOLDER_NAME = 'Backups';
   const VAULT_NAME = 'vault.keyron';
@@ -46,18 +46,20 @@ const KeyronDrive = (() => {
 
   function connect(forceAccountChoice = false) {
     if (!tokenClient) throw new Error('GOOGLE_CLIENT_NOT_INITIALIZED');
-    tokenClient.requestAccessToken({ prompt: forceAccountChoice ? 'select_account' : '' });
+    const options = forceAccountChoice ? { prompt: 'select_account' } : {};
+    tokenClient.requestAccessToken(options);
   }
 
   async function fetchCurrentUser() {
     if (!isConnected()) return null;
-    const response = await apiFetch('https://www.googleapis.com/oauth2/v3/userinfo', { cache: 'no-store' });
-    const profile = await response.json();
+    const response = await apiFetch(`${API}/about?fields=user`, { cache: 'no-store' });
+    const data = await response.json();
+    const profile = data?.user || {};
     currentUser = {
-      id: profile.sub || '',
-      name: profile.name || profile.email || 'Conta Google',
-      email: profile.email || '',
-      picture: profile.picture || ''
+      id: profile.permissionId || '',
+      name: profile.displayName || profile.emailAddress || 'Conta Google',
+      email: profile.emailAddress || '',
+      picture: profile.photoLink || ''
     };
     return currentUser;
   }

@@ -9,13 +9,13 @@
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=0.4.0" />
+  <link rel="manifest" href="manifest.json?v=0.5.0" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <link rel="stylesheet" href="css/style.css?v=0.4.0" />
+  <link rel="stylesheet" href="css/style.css?v=0.5.0" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -64,10 +64,34 @@
           <button type="submit" id="master-submit" class="btn btn--primary btn--wide">Desbloquear</button>
         </form>
 
+        <button type="button" id="forgot-master-btn" class="text-button">Esqueci minha senha mestra</button>
         <button type="button" id="back-google-btn" class="text-button">Trocar conta Google</button>
       </div>
+
+      <div id="recovery-step" class="access-step access-step--minimal" hidden>
+        <h1 class="visually-hidden">Recuperar acesso ao Keyron</h1>
+        <form id="recovery-form" autocomplete="off" novalidate>
+          <label class="field-label" for="recovery-code-input">Chave de recuperação</label>
+          <input type="text" id="recovery-code-input" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />
+
+          <div id="recovery-newpass-group" hidden>
+            <label class="field-label" for="recovery-new-password">Nova senha mestra</label>
+            <div class="secret-field">
+              <input type="password" id="recovery-new-password" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" />
+              <button type="button" id="recovery-toggle-new" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button>
+            </div>
+            <div id="recovery-strength-wrap" class="master-strength"><div class="strength-track"><div id="recovery-strength-bar" class="strength-bar"></div></div><span id="recovery-strength-label">Use uma frase longa e exclusiva.</span></div>
+            <label class="field-label" for="recovery-new-password-confirm">Confirmar nova senha mestra</label>
+            <input type="password" id="recovery-new-password-confirm" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" />
+          </div>
+
+          <p id="recovery-error" class="field-error" role="alert"></p>
+          <button type="submit" id="recovery-submit" class="btn btn--primary btn--wide">Verificar chave</button>
+        </form>
+        <button type="button" id="recovery-back-btn" class="text-button">Voltar para senha mestra</button>
+      </div>
     </section>
-    <span id="access-version" class="version-pill version-pill--fixed">v0.4.0</span>
+    <span id="access-version" class="version-pill version-pill--fixed">v0.5.0</span>
   </main>
 
   <section id="app-screen" class="app-screen" hidden>
@@ -84,6 +108,7 @@
 
       <div class="topbar-actions">
         <button type="button" id="sync-chip" class="sync-chip sync-chip--offline" title="Status da sincronização; clique para reconectar ou sincronizar"><span></span><b>Local</b></button>
+        <a href="https://hub.borionfinance.com.br/" id="hub-link-btn" class="icon-button icon-button--hub" title="Ir para o Hub Borion" aria-label="Ir para o Hub Borion"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h3.5v-5.5h3V20H17a1 1 0 0 0 1-1v-9"/></svg></a>
         <button type="button" id="settings-btn" class="icon-button" title="Segurança e preferências">⚙</button>
         <button type="button" id="lock-btn" class="icon-button icon-button--lock" title="Bloquear agora" aria-label="Bloquear agora"><span class="lock-glyph" aria-hidden="true"></span></button>
       </div>
@@ -97,7 +122,7 @@
         <p id="vault-last-activity" class="last-activity" hidden></p>
       </div>
       <div class="workspace-actions">
-        <button type="button" id="collapse-all-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">▾</span><span class="btn-label">Retrair tudo</span></button>
+        <button type="button" id="collapse-all-btn" class="btn btn--ghost" aria-expanded="true"><svg class="column-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg><span class="btn-label">Retrair tudo</span></button>
         <button type="button" id="manage-categories-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">◈</span><span class="btn-label">Categorias</span></button>
         <button type="button" id="add-column-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">▣</span><span class="btn-label">+ Nova gaveta</span></button>
         <button type="button" id="add-entry-btn" class="btn btn--primary"><span class="btn-icon" aria-hidden="true">+</span><span class="btn-label">Nova credencial</span></button>
@@ -226,18 +251,18 @@
 
     <div class="settings-shell">
       <nav id="settings-nav" class="settings-nav" aria-label="Seções das configurações">
-        <button type="button" class="is-active" data-settings-section="security"><span>🛡️</span> Segurança</button>
-        <button type="button" data-settings-section="privacy"><span>◈</span> Privacidade</button>
-        <button type="button" data-settings-section="appearance"><span>✦</span> Aparência</button>
-        <button type="button" data-settings-section="data"><span>☁️</span> Dados e backup</button>
-        <button type="button" data-settings-section="activity"><span>⌁</span> Atividade</button>
-        <button type="button" data-settings-section="about"><span>KEY</span> Sobre o Keyron</button>
+        <button type="button" class="is-active" data-settings-section="security"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.9-3.2 8.7-7 9.9-3.8-1.2-7-5-7-9.9V6l7-3z"/><path d="m9 12 2 2 4-4.5"/></svg></span> Segurança</button>
+        <button type="button" data-settings-section="privacy"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="3"/></svg></span> Privacidade</button>
+        <button type="button" data-settings-section="appearance"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3.2M12 17.8V21M3 12h3.2M17.8 12H21M5.6 5.6l2.3 2.3M16.1 16.1l2.3 2.3M18.4 5.6l-2.3 2.3M7.9 16.1l-2.3 2.3"/><circle cx="12" cy="12" r="2.6"/></svg></span> Aparência</button>
+        <button type="button" data-settings-section="data"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.2 4.2 0 0 1-.7-8.34A5.5 5.5 0 0 1 17 9.6a4.1 4.1 0 0 1 .4 8.15"/><path d="M7 18.5h10.4"/></svg></span> Dados e backup</button>
+        <button type="button" data-settings-section="activity"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 8 12 10 5.5 14 18.5 16 12 21 12"/></svg></span> Atividade</button>
+        <button type="button" data-settings-section="about"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="3.4"/><path d="m9.9 13 8.9-8.9M15.6 6.4l2.1 2.1M18 4l2.1 2.1"/></svg></span> Sobre o Keyron</button>
       </nav>
 
       <div id="settings-content" class="settings-content">
         <section class="settings-panel is-active" data-settings-panel="security">
           <div class="settings-hero">
-            <span class="settings-hero-icon">🛡️</span>
+            <span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.9-3.2 8.7-7 9.9-3.8-1.2-7-5-7-9.9V6l7-3z"/><path d="m9 12 2 2 4-4.5"/></svg></span>
             <div><span class="dialog-kicker">PROTEÇÃO DO COFRE</span><h3>Segurança de ponta, sem atalhos</h3><p>A senha mestra deriva localmente a chave AES-256-GCM. O Drive recebe somente o conteúdo cifrado.</p></div>
           </div>
 
@@ -270,10 +295,14 @@
             <div id="breach-results" class="breach-results"></div>
           </div>
 
-          <div class="settings-card settings-card--warning">
-            <div class="settings-card-head"><div><span class="card-eyebrow">SENHA ESQUECIDA</span><h3>Por que não existem perguntas pessoais?</h3></div></div>
-            <p>CEP, CPF, telefone e nome da mãe podem ser descobertos. Usar esses dados para abrir o cofre criaria uma porta dos fundos. O e-mail confirma a conta Google, mas não consegue descriptografar suas senhas.</p>
-            <p class="fine-print"><b>Guarde sua senha mestra em local seguro.</b> Sem a senha, uma biometria já ativada ou uma cópia válida da chave local do aparelho, o conteúdo permanece inacessível — inclusive para o próprio Keyron.</p>
+          <div class="settings-card">
+            <div class="settings-card-head"><div><span class="card-eyebrow">RECUPERAÇÃO</span><h3>Chave de recuperação</h3></div><span id="recovery-status-badge" class="status-badge">ATIVA</span></div>
+            <p>Sem perguntas pessoais: CEP, CPF, telefone e nome da mãe podem ser descobertos e criariam uma porta dos fundos. Em vez disso, o Keyron gera uma chave de recuperação aleatória só sua — guarde-a fora deste aparelho. Com ela, você define uma nova senha mestra sem perder nenhuma credencial salva.</p>
+            <p id="recovery-created-at" class="fine-print"></p>
+            <div class="button-row">
+              <button type="button" id="recovery-regenerate-btn" class="btn btn--ghost">Gerar nova chave de recuperação</button>
+            </div>
+            <p class="fine-print"><b>Sem a senha mestra e sem a chave de recuperação</b>, o conteúdo permanece inacessível — inclusive para o próprio Keyron.</p>
           </div>
 
           <div class="settings-card">
@@ -302,38 +331,38 @@
         </section>
 
         <section class="settings-panel" data-settings-panel="privacy">
-          <div class="settings-hero"><span class="settings-hero-icon">◈</span><div><span class="dialog-kicker">PRIVACY FIRST</span><h3>O que sai do dispositivo</h3><p>O Keyron cifra antes de sincronizar e reduz ao mínimo os dados enviados.</p></div></div>
+          <div class="settings-hero"><span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="3"/></svg></span><div><span class="dialog-kicker">PRIVACY FIRST</span><h3>O que sai do dispositivo</h3><p>O Keyron cifra antes de sincronizar e reduz ao mínimo os dados enviados.</p></div></div>
           <div class="privacy-grid">
-            <article class="settings-card"><span>🔐</span><h3>Cofre cifrado</h3><p>Senhas, usuários, notas, categorias, logos, posições e resultados de auditoria ficam dentro do payload AES-256-GCM.</p></article>
-            <article class="settings-card"><span>☁️</span><h3>Google Drive</h3><p>O escopo <code>drive.file</code> limita o Keyron aos arquivos que o próprio aplicativo criou ou abriu.</p></article>
-            <article class="settings-card"><span>🕵️</span><h3>Consulta de vazamentos</h3><p>A base externa recebe somente um prefixo de 5 caracteres do SHA-1, nunca sua senha nem o hash completo.</p></article>
-            <article class="settings-card"><span>🚫</span><h3>Sem rastreamento</h3><p>O Keyron não precisa de anúncios, analytics de comportamento ou banco de senhas em servidor próprio.</p></article>
+            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><h3>Cofre cifrado</h3><p>Senhas, usuários, notas, categorias, logos, posições e resultados de auditoria ficam dentro do payload AES-256-GCM.</p></article>
+            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.2 4.2 0 0 1-.7-8.34A5.5 5.5 0 0 1 17 9.6a4.1 4.1 0 0 1 .4 8.15"/><path d="M7 18.5h10.4"/></svg></span><h3>Google Drive</h3><p>O escopo <code>drive.file</code> limita o Keyron aos arquivos que o próprio aplicativo criou ou abriu.</p></article>
+            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="20" y1="20" x2="15.3" y2="15.3"/></svg></span><h3>Consulta de vazamentos</h3><p>A base externa recebe somente um prefixo de 5 caracteres do SHA-1, nunca sua senha nem o hash completo.</p></article>
+            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span><h3>Sem rastreamento</h3><p>O Keyron não precisa de anúncios, analytics de comportamento ou banco de senhas em servidor próprio.</p></article>
           </div>
           <div class="settings-card"><h3>Estrutura no Google Drive</h3><div class="drive-map"><code>Keyron/</code><code>├── vault.keyron <span>conteúdo cifrado</span></code><code>└── Backups/ <span>snapshots cifrados</span></code></div><p class="fine-print">O Google ainda vê metadados técnicos como nome, tamanho e data do arquivo. O conteúdo do cofre permanece cifrado.</p></div>
         </section>
 
         <section class="settings-panel" data-settings-panel="appearance">
-          <div class="settings-hero"><span class="settings-hero-icon">✦</span><div><span class="dialog-kicker">INTERFACE</span><h3>Aparência do cofre</h3><p>Controle a densidade das gavetas sem comprometer a leitura.</p></div></div>
+          <div class="settings-hero"><span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3.2M12 17.8V21M3 12h3.2M17.8 12H21M5.6 5.6l2.3 2.3M16.1 16.1l2.3 2.3M18.4 5.6l-2.3 2.3M7.9 16.1l-2.3 2.3"/><circle cx="12" cy="12" r="2.6"/></svg></span><div><span class="dialog-kicker">INTERFACE</span><h3>Aparência do cofre</h3><p>Controle a densidade das gavetas sem comprometer a leitura.</p></div></div>
           <div class="settings-card"><div class="settings-grid"><label>Gavetas por fileira<select id="setting-board-columns"><option value="auto">Automático</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label></div><p class="fine-print">No celular, as gavetas continuam em uma coluna para manter o toque e o arraste confortáveis.</p></div>
           <div class="settings-card"><h3>Organização manual</h3><p>Arraste uma credencial para qualquer ponto da gaveta. A linha azul mostra a posição exata; aproximar o cursor da borda da tela ativa a rolagem automática.</p></div>
         </section>
 
         <section class="settings-panel" data-settings-panel="data">
-          <div class="settings-hero"><span class="settings-hero-icon">☁️</span><div><span class="dialog-kicker">DADOS</span><h3>Backup e portabilidade</h3><p>Exporte, importe e crie snapshots sem transformar o cofre em texto legível.</p></div></div>
+          <div class="settings-hero"><span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.2 4.2 0 0 1-.7-8.34A5.5 5.5 0 0 1 17 9.6a4.1 4.1 0 0 1 .4 8.15"/><path d="M7 18.5h10.4"/></svg></span><div><span class="dialog-kicker">DADOS</span><h3>Backup e portabilidade</h3><p>Exporte, importe e crie snapshots sem transformar o cofre em texto legível.</p></div></div>
           <div class="settings-card"><h3>Backups cifrados</h3><p>O arquivo exportado continua ilegível sem a senha mestra. A importação `.keyron` rejeita dados em texto puro.</p><div class="button-row"><button type="button" id="export-btn" class="btn btn--ghost">Exportar .keyron</button><button type="button" id="import-btn" class="btn btn--ghost">Importar .keyron</button><input type="file" id="import-input" accept=".keyron,.json,application/json" hidden /><button type="button" id="backup-now-btn" class="btn btn--ghost">Snapshot no Drive</button></div></div>
           <div class="settings-card"><h3>Importar planilha CSV</h3><p>O CSV é lido localmente e cifrado assim que entra no cofre. Apague o arquivo em texto puro depois da importação.</p><div class="button-row"><select id="csv-import-column"></select><select id="csv-import-category"><option value="">Sem categoria</option></select><button type="button" id="csv-import-btn" class="btn btn--ghost">Escolher CSV</button><input type="file" id="csv-import-input" accept=".csv,text/csv" hidden /></div><p class="fine-print">Cabeçalho esperado: <code>name,username,email,password,url,notes</code>.</p></div>
           <div class="settings-footer"><span id="storage-info">Cofre local cifrado</span><button type="button" id="signout-btn" class="text-button text-button--danger">Sair da conta Google</button></div>
         </section>
 
         <section class="settings-panel" data-settings-panel="activity">
-          <div class="settings-hero"><span class="settings-hero-icon">⌁</span><div><span class="dialog-kicker">HISTÓRICO LOCAL</span><h3>Atividade recente</h3><p>Eventos de organização e segurança salvos dentro do próprio cofre cifrado.</p></div></div>
+          <div class="settings-hero"><span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 8 12 10 5.5 14 18.5 16 12 21 12"/></svg></span><div><span class="dialog-kicker">HISTÓRICO LOCAL</span><h3>Atividade recente</h3><p>Eventos de organização e segurança salvos dentro do próprio cofre cifrado.</p></div></div>
           <div class="settings-card"><div id="activity-list" class="activity-list"></div><p id="activity-empty" class="fine-print" hidden>Nenhuma atividade registrada ainda.</p></div>
         </section>
 
         <section class="settings-panel" data-settings-panel="about">
           <div class="about-keyron">
             <img src="assets/keyron-wordmark.png" alt="Keyron" />
-            <span class="version-pill">v0.4.0</span>
+            <span class="version-pill">v0.5.0</span>
           </div>
           <div class="settings-card settings-card--story"><span class="dialog-kicker">POR QUE O KEYRON FOI CRIADO</span><h3>Da planilha EVA para um cofre de verdade</h3><p>O Keyron nasceu porque organizar senhas em uma planilha chamada EVA já não combinava com a importância daqueles dados. A planilha era prática, mas continuava sendo um arquivo em texto legível, difícil de usar no celular e sem uma camada de proteção criada especificamente para credenciais.</p><p>A ideia foi transformar a mesma lógica visual de organização — categorias e “gavetas” — em um aplicativo próprio, rápido e agradável, mas com criptografia antes do salvamento, biometria, sincronização pelo Drive do usuário e controle total sobre cada acesso.</p><p>O nome Keyron une a ideia de <b>key</b>, a chave que abre apenas o que pertence a você, com uma identidade tecnológica independente. Ele foi criado para que segurança não pareça uma planilha improvisada nem um sistema distante: deve ser um cofre pessoal que você entende e consegue organizar do seu jeito.</p></div>
           <div class="privacy-grid"><article class="settings-card"><span>01</span><h3>Controle</h3><p>Suas gavetas, sua ordem e seu Drive.</p></article><article class="settings-card"><span>02</span><h3>Clareza</h3><p>Uma interface visual para encontrar acessos rápido.</p></article><article class="settings-card"><span>03</span><h3>Proteção</h3><p>Criptografia local sem mecanismo fraco de recuperação.</p></article></div>
@@ -364,6 +393,19 @@
     </div>
   </dialog>
 
+  <dialog id="recovery-reveal-dialog" class="dialog dialog--recovery-reveal">
+    <div class="dialog-head">
+      <div><span class="dialog-kicker">CHAVE DE RECUPERAÇÃO</span><h2>Guarde esta chave agora</h2><p>Ela é o único jeito de recuperar o cofre se você esquecer a senha mestra. O Keyron não guarda uma cópia legível dela em nenhum lugar.</p></div>
+    </div>
+    <div class="recovery-code-display">
+      <code id="recovery-code-value"></code>
+      <button type="button" id="recovery-code-copy" class="btn btn--ghost">Copiar</button>
+    </div>
+    <p class="fine-print">Anote em papel ou em outro gerenciador, longe deste aparelho. Qualquer pessoa com essa chave e acesso ao seu Google Drive consegue abrir o cofre — trate-a como a própria senha mestra.</p>
+    <label class="toggle-row" for="recovery-reveal-ack"><span><b>Já salvei minha chave de recuperação em um lugar seguro</b></span><input type="checkbox" id="recovery-reveal-ack" /><i aria-hidden="true"></i></label>
+    <div class="dialog-actions"><span></span><span></span><button type="button" id="recovery-reveal-close" class="btn btn--primary" disabled>Continuar</button></div>
+  </dialog>
+
   <dialog id="confirm-dialog" class="dialog dialog--confirm">
     <div class="dialog-content confirm-content">
       <div class="confirm-badge" aria-hidden="true">✦</div>
@@ -388,16 +430,17 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=0.4.0"></script>
-  <script src="js/crypto.js?v=0.4.0"></script>
-  <script src="js/storage.js?v=0.4.0"></script>
-  <script src="js/save-engine.js?v=0.4.0"></script>
-  <script src="js/vault.js?v=0.4.0"></script>
-  <script src="js/generator.js?v=0.4.0"></script>
-  <script src="js/breach-check.js?v=0.4.0"></script>
-  <script src="js/drive.js?v=0.4.0"></script>
-  <script src="js/biometric.js?v=0.4.0"></script>
+  <script src="js/config.js?v=0.5.0"></script>
+  <script src="js/crypto.js?v=0.5.0"></script>
+  <script src="js/storage.js?v=0.5.0"></script>
+  <script src="js/save-engine.js?v=0.5.0"></script>
+  <script src="js/vault.js?v=0.5.0"></script>
+  <script src="js/generator.js?v=0.5.0"></script>
+  <script src="js/breach-check.js?v=0.5.0"></script>
+  <script src="js/drive.js?v=0.5.0"></script>
+  <script src="js/biometric.js?v=0.5.0"></script>
+  <script src="js/sound.js?v=0.5.0"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=0.4.0"></script>
+  <script src="js/app.js?v=0.5.0"></script>
 </body>
 </html>

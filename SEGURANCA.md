@@ -1,4 +1,4 @@
-# Segurança — Keyron v0.4.0
+# Segurança — Keyron v0.5.0
 
 ## Modelo do cofre
 
@@ -14,7 +14,14 @@ O Keyron é um cofre zero-knowledge no sentido de que o conteúdo legível é ci
 - IV aleatório: 12 bytes por cifragem.
 - AAD: contexto e identificador do cofre.
 
-A senha mestra é usada para derivar a chave e não é gravada no bundle.
+### Chave de dados (v0.5.0)
+
+O cofre é cifrado com uma chave de dados (DEK) de 256 bits, gerada aleatoriamente e independente de qualquer senha. Essa DEK é "embrulhada" (cifrada) duas vezes, separadamente:
+
+1. Por uma chave derivada da senha mestra (PBKDF2, salt e iterações próprios).
+2. Por uma chave derivada da chave de recuperação (PBKDF2, salt e iterações próprios).
+
+Nenhum dos dois embrulhos decifra o outro — cada um só devolve a mesma DEK a partir do seu próprio segredo. Trocar a senha mestra re-embrulha apenas o primeiro (a DEK e o conteúdo cifrado não mudam), e por isso a chave de recuperação continua válida depois da troca.
 
 ## Biometria
 
@@ -43,7 +50,9 @@ O SHA-1 não é usado para cifrar nem armazenar senhas. Ele é usado exclusivame
 
 Não existe recuperação por CPF, CEP, telefone, nome da mãe, perguntas secretas ou simples confirmação por e-mail. Esses mecanismos reduziriam a segurança e permitiriam ataques com dados pessoais vazados.
 
-Sem a senha mestra ou uma biometria válida já registrada naquele dispositivo, o cofre deve permanecer inacessível. Essa limitação é uma propriedade de segurança, não um erro.
+Em vez disso, o Keyron gera uma chave de recuperação aleatória de alta entropia (30 caracteres, ≈150 bits) na criação do cofre — ou na migração de um cofre anterior — e mostra-a uma única vez para o usuário guardar fora do aparelho. Essa chave consegue destravar a DEK e permitir a definição de uma nova senha mestra, exatamente como a senha faria, sem nenhum atalho baseado em dados pessoais. O Keyron nunca guarda uma cópia legível dela: só o embrulho cifrado da DEK.
+
+Sem a senha mestra e sem essa chave de recuperação, o cofre deve permanecer inacessível. Essa limitação é uma propriedade de segurança, não um erro.
 
 ## Dados que o Google ainda pode ver
 
@@ -52,6 +61,7 @@ O Google pode ver metadados do arquivo, como nome, tamanho e datas. O conteúdo 
 ## Recomendações
 
 - Use uma frase mestra longa, exclusiva e não reutilizada.
+- Guarde a chave de recuperação exibida na criação do cofre em um local seguro e diferente deste aparelho.
 - Ative biometria apenas em dispositivos confiáveis.
 - Exporte backups `.keyron` periodicamente.
 - Apague CSVs em texto puro após importá-los.

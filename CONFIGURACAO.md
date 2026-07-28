@@ -1,4 +1,4 @@
-# Configuração do Keyron v0.4.0
+# Configuração do Keyron v0.5.0
 
 ## 1. Google OAuth
 
@@ -13,10 +13,9 @@ window.KeyronConfig = {
 
 No Google Cloud, cadastre exatamente os domínios HTTPS em que o Keyron será aberto em **Origens JavaScript autorizadas**. Para produção, use o domínio final do Keyron.
 
-O Keyron solicita:
+O Keyron solicita apenas:
 
-- `openid email profile`, para identificar a conta escolhida;
-- `https://www.googleapis.com/auth/drive.file`, para acessar somente arquivos criados ou abertos pelo próprio aplicativo.
+- `https://www.googleapis.com/auth/drive.file`, para acessar somente arquivos criados ou abertos pelo próprio aplicativo. O nome e e-mail da conta conectada (mostrados durante a verificação) vêm do próprio recurso `about` da API do Drive — não é preciso pedir os escopos `openid`/`email`/`profile` separadamente, o que evitava telas extras de consentimento e exigia mais de um clique para autenticar.
 
 No acesso normal, o aplicativo não força `select_account`. O seletor completo de conta é usado somente quando o usuário pede para trocar de conta ou sai da conta atual.
 
@@ -41,7 +40,7 @@ Não há tarefa em servidor nem verificação com o cofre bloqueado. O aplicativ
 
 ## 4. Atualização da 0.3.9
 
-Substitua os arquivos publicados pelos arquivos da 0.4.0. O Service Worker usa um cache novo e remove o cache antigo na ativação.
+Substitua os arquivos publicados pelos arquivos da 0.5.0. O Service Worker usa um cache novo e remove o cache antigo na ativação.
 
 Ao desbloquear um cofre antigo, a migração para o schema 3 é automática. Ela adiciona a ordem interna das credenciais e a estrutura de auditoria sem alterar senhas, notas, logos ou categorias.
 

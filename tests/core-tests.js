@@ -148,7 +148,94 @@ async function test(name, fn) {
     assert(KeyronBreachCheck.isWeeklyDue('2026-07-20T11:59:59.000Z', now), 'verificação antiga não ficou devida');
   });
 
-  console.log(`\n${passed}/10 testes de núcleo aprovados.`);
+  await test('Cofre novo gera chave de recuperação própria e independente da senha', async () => {
+    const vault = KeyronVault.emptyVault();
+    const created = await KeyronCrypto.createBundle('senha mestra bem longa e exclusiva 1', vault);
+    assert(created.bundle.formatVersion === 3, 'formatVersion não é 3');
+    assert(Boolean(created.bundle.wrappedKey), 'sem wrappedKey (senha)');
+    assert(Boolean(created.bundle.recovery?.wrappedKey), 'sem wrappedKey (recuperação)');
+    assert(typeof created.recoveryCode === 'string' && created.recoveryCode.length > 20, 'chave de recuperação muito curta');
+
+    const dekViaRecovery = await KeyronCrypto.unlockWithRecoveryCode(created.recoveryCode, created.bundle);
+    const vaultViaRecovery = await KeyronCrypto.decryptPayload(dekViaRecovery, created.bundle);
+    assert(vaultViaRecovery.id === vault.id, 'chave de recuperação não abriu o mesmo cofre');
+
+    let rejected = false;
+    try { await KeyronCrypto.unlockWithRecoveryCode('ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ', created.bundle); } catch { rejected = true; }
+    assert(rejected, 'chave de recuperação inválida foi aceita');
+  });
+
+  await test('Trocar a senha mestra preserva a mesma DEK e a chave de recuperação continua válida', async () => {
+    const vault = KeyronVault.emptyVault();
+    const created = await KeyronCrypto.createBundle('senha antiga bem longa e exclusiva 2', vault);
+    const rawOldKey = Buffer.from(await webcrypto.subtle.exportKey('raw', created.key));
+
+    const rewrapped = await KeyronCrypto.changePassword(created.key, 'senha nova bem longa e exclusiva 3', created.bundle);
+
+    let oldPasswordRejected = false;
+    try { await KeyronCrypto.unlockBundle('senha antiga bem longa e exclusiva 2', rewrapped); } catch { oldPasswordRejected = true; }
+    assert(oldPasswordRejected, 'senha antiga ainda funcionou depois da troca');
+
+    const unlockedNew = await KeyronCrypto.unlockBundle('senha nova bem longa e exclusiva 3', rewrapped);
+    const rawNewKey = Buffer.from(await webcrypto.subtle.exportKey('raw', unlockedNew.key));
+    assert(rawOldKey.equals(rawNewKey), 'a DEK mudou ao trocar a senha (deveria ser reaproveitada)');
+
+    const dekViaRecovery = await KeyronCrypto.unlockWithRecoveryCode(created.recoveryCode, rewrapped);
+    await KeyronCrypto.decryptPayload(dekViaRecovery, rewrapped);
+  });
+
+  await test('Gerar nova chave de recuperação invalida a anterior sem afetar a senha mestra', async () => {
+    const vault = KeyronVault.emptyVault();
+    const created = await KeyronCrypto.createBundle('senha estavel bem longa e exclusiva 4', vault);
+    const regenerated = await KeyronCrypto.regenerateRecovery(created.key, created.bundle);
+
+    let oldRecoveryRejected = false;
+    try { await KeyronCrypto.unlockWithRecoveryCode(created.recoveryCode, regenerated.bundle); } catch { oldRecoveryRejected = true; }
+    assert(oldRecoveryRejected, 'chave de recuperação antiga ainda funcionou depois de regenerar');
+
+    const dekViaNewRecovery = await KeyronCrypto.unlockWithRecoveryCode(regenerated.recoveryCode, regenerated.bundle);
+    await KeyronCrypto.decryptPayload(dekViaNewRecovery, regenerated.bundle);
+    await KeyronCrypto.unlockBundle('senha estavel bem longa e exclusiva 4', regenerated.bundle);
+  });
+
+  await test('Cofre antigo sem DEK própria (v2) ainda destrava e migra gerando recuperação', async () => {
+    const vault = KeyronVault.emptyVault();
+    const legacyLike = await (async () => {
+      // Monta um bundle no formato v2 (sem wrappedKey/recovery), como os cofres já publicados.
+      const salt = webcrypto.getRandomValues(new Uint8Array(16));
+      const material = await webcrypto.subtle.importKey('raw', new TextEncoder().encode('senha legado bem longa e exclusiva 5'), 'PBKDF2', false, ['deriveKey']);
+      const key = await webcrypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 600000 }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      const enc = async (obj, ctx) => {
+        const iv = webcrypto.getRandomValues(new Uint8Array(12));
+        const aad = new TextEncoder().encode(`KEYRON|${ctx}|2`);
+        const plain = new TextEncoder().encode(JSON.stringify(obj));
+        const cipher = await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, plain);
+        const b64 = (bytes) => Buffer.from(bytes).toString('base64');
+        return { iv: b64(iv), data: b64(new Uint8Array(cipher)) };
+      };
+      return {
+        format: 'keyron-vault',
+        formatVersion: 2,
+        vaultId: vault.id,
+        kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: 600000, salt: Buffer.from(salt).toString('base64') },
+        cipher: { name: 'AES-GCM', length: 256, tagLength: 128 },
+        check: await enc({ marker: 'KEYRON_OK', vaultId: vault.id }, `check:${vault.id}`),
+        payload: await enc(vault, `payload:${vault.id}`),
+        revision: 1,
+        updatedAt: new Date().toISOString()
+      };
+    })();
+
+    const unlocked = await KeyronCrypto.unlockBundle('senha legado bem longa e exclusiva 5', legacyLike);
+    assert(unlocked.vault.id === vault.id, 'cofre v2 não destravou corretamente');
+
+    const migrated = await KeyronCrypto.rekeyBundle('senha legado bem longa e exclusiva 5', unlocked.vault, unlocked.vault.id);
+    assert(migrated.bundle.vaultId === vault.id, 'migração não preservou o vaultId');
+    assert(Boolean(migrated.bundle.wrappedKey), 'migração não gerou wrappedKey');
+    assert(Boolean(migrated.recoveryCode), 'migração não gerou chave de recuperação');
+  });
+
+  console.log(`\n${passed}/14 testes de núcleo aprovados.`);
 })().catch((error) => {
   console.error(`✗ ${error.message}`);
   process.exit(1);

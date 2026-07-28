@@ -7,7 +7,8 @@ const suites = [
   ['núcleo', 'core-tests.js', 15],
   ['segurança dinâmica', 'security-tests.js', 25],
   ['Drive simulado', 'drive-tests.js', 7],
-  ['segurança estática', 'static-security-tests.js', 30]
+  ['acesso offline', 'offline-access-tests.js', 14],
+  ['segurança estática', 'static-security-tests.js', 37]
 ];
 const repeats = Math.max(1, Math.min(100, Number(process.argv[2] || 1)));
 const assertionsPerRound = suites.reduce((sum, suite) => sum + suite[2], 0);

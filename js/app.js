@@ -8,6 +8,9 @@
     vault: null,
     googleVerified: false,
     googleUser: null,
+    offlineAuthorized: false,
+    offlineAuthorization: null,
+    offlineEntryReason: null,
     remoteInfo: null,
     needsInitialPush: false,
     accessMode: 'unlock',
@@ -59,6 +62,7 @@
     googleState: $('#google-state'),
     masterTitle: $('#master-title'),
     masterSubtitle: $('#master-subtitle'),
+    offlineAccessBanner: $('#offline-access-banner'),
     masterForm: $('#master-form'),
     masterPassword: $('#master-password'),
     masterConfirmGroup: $('#master-confirm-group'),
@@ -150,6 +154,17 @@
     biometricEnableBtn: $('#biometric-enable-btn'),
     biometricActiveRow: $('#biometric-active-row'),
     biometricDisableBtn: $('#biometric-disable-btn'),
+    offlineAccessSection: $('#offline-access-section'),
+    offlineAccessEnableRow: $('#offline-access-enable-row'),
+    offlineDeviceLabel: $('#offline-device-label'),
+    offlineConfirmPassword: $('#offline-confirm-password'),
+    offlineAccessEnableBtn: $('#offline-access-enable-btn'),
+    offlineAccessError: $('#offline-access-error'),
+    offlineAccessActiveRow: $('#offline-access-active-row'),
+    offlineAccessStatusText: $('#offline-access-status-text'),
+    offlineAccessDetails: $('#offline-access-details'),
+    offlineAccessRefreshBtn: $('#offline-access-refresh-btn'),
+    offlineAccessDisableBtn: $('#offline-access-disable-btn'),
     autoLock: $('#setting-auto-lock'),
     clipboard: $('#setting-clipboard'),
     boardColumns: $('#setting-board-columns'),
@@ -231,7 +246,7 @@
 
   function setSyncStatus(status, label) {
     el.syncChip.className = `sync-chip sync-chip--${status}`;
-    $('b', el.syncChip).textContent = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', error: 'Pendente' }[status] || status);
+    $('b', el.syncChip).textContent = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', trusted: 'Offline autorizado', error: 'Pendente' }[status] || status);
   }
 
   function askConfirm({ title = 'Confirmar ação', message = 'Deseja continuar?', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', kind = 'danger', kicker = 'CONFIRMAR AÇÃO' } = {}) {
@@ -277,6 +292,79 @@
     if (!bundle?.ownerBinding) return true; // cofre anterior à vinculação: será vinculado após o primeiro desbloqueio.
     const binding = await currentAccountBinding();
     return Boolean(binding && binding === bundle.ownerBinding);
+  }
+
+  function clearOfflineSession() {
+    state.offlineAuthorized = false;
+    state.offlineAuthorization = null;
+    state.offlineEntryReason = null;
+    if (el.offlineAccessBanner) el.offlineAccessBanner.hidden = true;
+  }
+
+  function defaultDeviceLabel() {
+    const mobile = window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || '').trim();
+    const base = mobile ? 'Meu celular' : 'Meu computador';
+    return platform ? `${base} — ${platform}`.slice(0, 80) : base;
+  }
+
+  function canAttemptTrustedOffline() {
+    return Boolean(
+      KeyronConfig.ALLOW_TRUSTED_OFFLINE_ACCESS !== false &&
+      globalThis.KeyronOfflineAccess?.supported?.() &&
+      safeEncryptedBundle(state.bundle)?.ownerBinding
+    );
+  }
+
+  async function authorizeOfflineSession(reason = 'offline') {
+    if (!canAttemptTrustedOffline()) return false;
+    try {
+      const authorization = await KeyronOfflineAccess.verify(state.bundle, KeyronSaveEngine.deviceId);
+      state.offlineAuthorized = true;
+      state.offlineAuthorization = authorization;
+      state.offlineEntryReason = reason;
+      state.googleVerified = false;
+      state.googleUser = null;
+      configureMasterStep('unlock');
+      showMasterStep();
+      return true;
+    } catch (error) {
+      clearOfflineSession();
+      console.warn('[Keyron] acesso offline não autorizado', error?.message);
+      return false;
+    }
+  }
+
+  async function bundleAuthorizedForUnlock(bundle) {
+    if (state.googleVerified) return belongsToCurrentGoogleAccount(bundle);
+    if (!state.offlineAuthorized || !state.offlineAuthorization) return false;
+    if (bundle?.vaultId !== state.offlineAuthorization.vaultId || bundle?.ownerBinding !== state.offlineAuthorization.ownerBinding) return false;
+    if (KeyronSaveEngine.deviceId !== state.offlineAuthorization.deviceId) return false;
+    try {
+      state.offlineAuthorization = await KeyronOfflineAccess.verify(bundle, KeyronSaveEngine.deviceId);
+      return true;
+    } catch {
+      clearOfflineSession();
+      return false;
+    }
+  }
+
+  async function refreshExistingOfflineAuthorization() {
+    if (!state.googleVerified || !state.bundle?.ownerBinding || !globalThis.KeyronOfflineAccess?.supported?.()) return null;
+    try {
+      const refreshed = await KeyronOfflineAccess.refresh({
+        vaultId: state.bundle.vaultId,
+        ownerBinding: state.bundle.ownerBinding,
+        deviceId: KeyronSaveEngine.deviceId,
+        operationId: state.bundle.operationId,
+        revision: Number(state.bundle.revision),
+        trustDays: KeyronConfig.OFFLINE_TRUST_DAYS
+      });
+      state.offlineAuthorization = refreshed;
+      return refreshed;
+    } catch {
+      return null;
+    }
   }
 
   function safeEncryptedBundle(value) {
@@ -439,12 +527,18 @@
     } catch (error) {
       console.error(error);
       setGoogleLoading(false);
+      const enteredOffline = await authorizeOfflineSession('google-unavailable');
+      if (enteredOffline) {
+        toast('Google indisponível. O Keyron liberou somente a cópia cifrada deste dispositivo.', 'warning', 5600);
+        return;
+      }
       el.googleState.textContent = 'A biblioteca do Google não carregou. Confira a internet e tente novamente.';
-      toast('A verificação do Google não pôde ser iniciada.', 'error');
+      toast('A verificação do Google não pôde ser iniciada e este aparelho não tem autorização offline válida.', 'error', 6000);
     }
   }
 
   async function onGoogleVerified(profile) {
+    clearOfflineSession();
     state.googleVerified = true;
     state.forceAccountChoiceNext = false;
     state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
@@ -505,6 +599,11 @@
     el.googleStep.hidden = true;
     el.masterStep.hidden = false;
     el.recoveryStep.hidden = true;
+    if (el.offlineAccessBanner) el.offlineAccessBanner.hidden = !state.offlineAuthorized;
+    el.forgotMasterBtn.hidden = state.offlineAuthorized;
+    if (state.offlineAuthorized) {
+      el.backGoogle.textContent = navigator.onLine === false ? 'Tentar Google quando voltar a internet' : 'Verificar Google agora';
+    }
     refreshBiometricUnlockUI({ autoAttempt: true }).catch(() => {
       document.body.classList.remove('biometric-first');
       setTimeout(() => el.masterPassword.focus(), 80);
@@ -512,6 +611,10 @@
   }
 
   function showRecoveryStep() {
+    if (!state.googleVerified) {
+      toast('A recuperação exige uma nova verificação Google.', 'warning', 4800);
+      return;
+    }
     document.body.dataset.screen = 'access';
     el.accessShell.hidden = false;
     el.googleStep.hidden = true;
@@ -595,6 +698,8 @@
 
       const hadBiometric = await KeyronBiometric.hasRecord(normalized.id);
       if (hadBiometric) await KeyronBiometric.forget(normalized.id);
+      await KeyronOfflineAccess.revoke(normalized.id).catch(() => null);
+      clearOfflineSession();
 
       state.key = dek;
       state.bundle = rewrapped;
@@ -625,6 +730,10 @@
   }
 
   async function handleRecoveryRegenerate() {
+    if (!state.googleVerified || !KeyronDrive.isConnected()) {
+      toast('Verifique o Google antes de gerar uma nova chave de recuperação. Essa mudança precisa ser confirmada no Drive.', 'warning', 5600);
+      return;
+    }
     const confirmed = await askConfirm({
       title: 'Gerar nova chave de recuperação',
       message: 'A chave atual deixará de abrir o cofre principal. Backups antigos continuam protegidos pela chave vigente quando foram criados. Você verá a nova chave uma única vez — guarde-a antes de fechar.',
@@ -757,7 +866,7 @@
       el.masterConfirmGroup.hidden = true;
       el.masterStrengthWrap.hidden = true;
       el.masterSubmit.textContent = 'Desbloquear';
-      el.backGoogle.textContent = 'Trocar conta Google';
+      el.backGoogle.textContent = state.offlineAuthorized ? (navigator.onLine === false ? 'Tentar Google quando voltar a internet' : 'Verificar Google agora') : 'Trocar conta Google';
     }
   }
 
@@ -781,6 +890,11 @@
     const next = el.cpNew.value;
     const confirmValue = el.cpConfirm.value;
     el.cpError.textContent = '';
+
+    if (!state.googleVerified || !KeyronDrive.isConnected()) {
+      el.cpError.textContent = 'Verifique o Google antes de trocar a senha mestra. Essa mudança precisa ser confirmada no Drive.';
+      return;
+    }
 
     if (!current || !next) {
       el.cpError.textContent = 'Preencha a senha atual e a nova senha.';
@@ -842,6 +956,8 @@
 
       const hadBiometric = await KeyronBiometric.hasRecord(state.vault.id);
       if (hadBiometric) await KeyronBiometric.forget(state.vault.id);
+      await KeyronOfflineAccess.revoke(state.vault.id).catch(() => null);
+      clearOfflineSession();
 
       el.cpForm.reset();
       el.cpStrengthBar.style.width = '0%';
@@ -963,18 +1079,20 @@
     try {
       const rawBundle = safeEncryptedBundle(state.bundle);
       if (!rawBundle) throw new Error('INVALID_BUNDLE');
-      if (!(await belongsToCurrentGoogleAccount(rawBundle))) throw new Error('ACCOUNT_MISMATCH');
+      const offlineAttempt = state.offlineAuthorized;
+      if (!(await bundleAuthorizedForUnlock(rawBundle))) throw new Error(offlineAttempt ? 'OFFLINE_AUTHORIZATION_INVALID' : 'ACCOUNT_MISMATCH');
 
       const result = await KeyronCrypto.unlockBundle(password, rawBundle);
       const normalized = KeyronVault.normalize(result.vault);
-      const ownerAccountId = googleAccountIdentifier();
-      const expectedBinding = ownerAccountId ? await KeyronCrypto.hashAccountIdentifier(ownerAccountId) : null;
+      const ownerAccountId = state.googleVerified ? googleAccountIdentifier() : '';
+      const expectedBinding = ownerAccountId ? await KeyronCrypto.hashAccountIdentifier(ownerAccountId) : rawBundle.ownerBinding;
       const needsRekey = result.legacy || !rawBundle.wrappedKey;
+      if (needsRekey && !state.googleVerified) throw new Error('OFFLINE_LEGACY_UNSUPPORTED');
       const needsUpgrade = Number(rawBundle.formatVersion || 0) < KeyronCrypto.FORMAT_VERSION ||
         !result.metadataProtected ||
         result.iterations < KeyronCrypto.CURRENT_ITERATIONS ||
         !rawBundle.ownerBinding ||
-        rawBundle.ownerBinding !== expectedBinding;
+        (state.googleVerified && rawBundle.ownerBinding !== expectedBinding);
 
       if (needsRekey) {
         const migrated = await KeyronCrypto.rekeyBundle(password, normalized, normalized.id, {
@@ -1015,8 +1133,9 @@
       KeyronSaveEngine.initialize(state.bundle);
       state.failedAttempts = 0;
       el.masterError.textContent = '';
+      if (state.googleVerified) await refreshExistingOfflineAuthorization();
       openApplication();
-      if (state.needsInitialPush) scheduleDriveSync(50);
+      if (state.needsInitialPush && state.googleVerified) scheduleDriveSync(50);
     } catch (error) {
       console.error(error);
       state.failedAttempts += 1;
@@ -1026,6 +1145,10 @@
         el.masterError.textContent = 'Este arquivo usa uma versão de cofre ainda não suportada.';
       } else if (error.message === 'ACCOUNT_MISMATCH') {
         el.masterError.textContent = 'Este cofre está vinculado a outra conta Google. Troque para a conta correta.';
+      } else if (error.message === 'OFFLINE_AUTHORIZATION_INVALID') {
+        el.masterError.textContent = 'A autorização offline deste aparelho expirou, foi removida ou não confere mais. Verifique o Google novamente.';
+      } else if (error.message === 'OFFLINE_LEGACY_UNSUPPORTED') {
+        el.masterError.textContent = 'Este cofre precisa de uma atualização de segurança online antes do primeiro acesso offline.';
       } else if (error.message === 'INVALID_BUNDLE_INTEGRITY') {
         el.masterError.textContent = 'O arquivo cifrado foi alterado ou corrompido. O Keyron bloqueou a abertura.';
       } else {
@@ -1047,7 +1170,7 @@
     state.collapsedColumns = new Set(state.vault.columns.map((c) => c.id));
     renderAll();
     resetAutoLockTimer();
-    setSyncStatus(state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline'));
+    setSyncStatus(state.offlineAuthorized ? 'trusted' : (state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline')));
     setTimeout(() => document.body.classList.remove('vault-entering'), 760);
     setTimeout(() => el.search.focus(), 180);
     setTimeout(() => scheduleWeeklyBreachCheck(), 1200);
@@ -1135,6 +1258,8 @@
     } else if (state.googleVerified && KeyronDrive.isConnected()) {
       configureMasterStep('unlock');
       showMasterStep();
+    } else if (state.offlineAuthorized && await authorizeOfflineSession('lock')) {
+      // authorizeOfflineSession já exibiu a etapa de senha mestra.
     } else {
       showGoogleStep();
     }
@@ -1167,13 +1292,16 @@
       onLocalSaved: (bundle) => {
         state.bundle = bundle;
         state.needsInitialPush = true;
+        KeyronOfflineAccess.advance(bundle, KeyronSaveEngine.deviceId)
+          .then((authorization) => { state.offlineAuthorization = authorization; })
+          .catch(() => null);
       }
     });
 
     state.bundle = result.bundle;
     state.needsInitialPush = true;
-    setSyncStatus(KeyronDrive.isConnected() ? 'pending' : 'offline');
-    scheduleDriveSync();
+    setSyncStatus(state.offlineAuthorized ? 'trusted' : (KeyronDrive.isConnected() ? 'pending' : 'offline'));
+    if (state.googleVerified) scheduleDriveSync();
     return result;
   }
 
@@ -1208,6 +1336,7 @@
         KeyronConfig.GOOGLE_CLIENT_ID,
         async (profile) => {
           try {
+            clearOfflineSession();
             state.googleVerified = true;
             state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
             if (state.bundle && !(await belongsToCurrentGoogleAccount(state.bundle))) {
@@ -1284,7 +1413,7 @@
 
   async function syncToDrive() {
     if (!state.bundle || !state.googleVerified || !KeyronDrive.isConnected()) {
-      setSyncStatus(state.needsInitialPush ? 'offline' : 'synced');
+      setSyncStatus(state.offlineAuthorized ? 'trusted' : (state.needsInitialPush ? 'offline' : 'synced'));
       return;
     }
     if (state.syncInFlight) {
@@ -1872,6 +2001,7 @@
     renderBreachResults();
     renderRecoveryStatus();
     refreshBiometricSettingsUI();
+    refreshOfflineAccessSettingsUI();
     populateCsvImportColumn();
     el.cpError.textContent = '';
   }
@@ -1983,6 +2113,116 @@
     toast('Biometria desativada neste dispositivo.', 'info');
   }
 
+  function formatOfflineExpiry(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return 'data indisponível';
+    return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  async function refreshOfflineAccessSettingsUI() {
+    if (!el.offlineAccessSection || !state.bundle) return;
+    const available = Boolean(KeyronConfig.ALLOW_TRUSTED_OFFLINE_ACCESS !== false && globalThis.KeyronOfflineAccess?.supported?.());
+    el.offlineAccessSection.hidden = !available;
+    if (!available) return;
+    if (!el.offlineDeviceLabel.value) el.offlineDeviceLabel.value = defaultDeviceLabel();
+    const status = await KeyronOfflineAccess.status(state.bundle, KeyronSaveEngine.deviceId);
+    const active = Boolean(status.authorized);
+    el.offlineAccessEnableRow.hidden = active;
+    el.offlineAccessActiveRow.hidden = !active;
+    el.offlineAccessError.textContent = '';
+    el.offlineConfirmPassword.value = '';
+    if (active) {
+      el.offlineAccessStatusText.textContent = `${status.deviceLabel} autorizado`;
+      el.offlineAccessDetails.textContent = `Válido até ${formatOfflineExpiry(status.expiresAt)}. A sincronização continua exigindo Google.`;
+      el.offlineDeviceLabel.value = status.deviceLabel;
+      state.offlineAuthorization = status;
+    }
+  }
+
+  async function enableOfflineAccess() {
+    if (!state.googleVerified || !KeyronDrive.isConnected()) {
+      el.offlineAccessError.textContent = 'Verifique sua conta Google antes de autorizar este aparelho.';
+      return;
+    }
+    const password = el.offlineConfirmPassword.value;
+    if (!password) {
+      el.offlineAccessError.textContent = 'Digite sua senha mestra para confirmar.';
+      return;
+    }
+    el.offlineAccessEnableBtn.disabled = true;
+    el.offlineAccessError.textContent = '';
+    try {
+      await KeyronCrypto.unlockBundle(password, state.bundle);
+      const ownerBinding = await currentAccountBinding();
+      if (!ownerBinding || ownerBinding !== state.bundle.ownerBinding) throw new Error('ACCOUNT_MISMATCH');
+      await KeyronOfflineAccess.enroll({
+        vaultId: state.bundle.vaultId,
+        ownerBinding,
+        deviceId: KeyronSaveEngine.deviceId,
+        deviceLabel: el.offlineDeviceLabel.value || defaultDeviceLabel(),
+        operationId: state.bundle.operationId,
+        revision: Number(state.bundle.revision),
+        trustDays: KeyronConfig.OFFLINE_TRUST_DAYS
+      });
+      el.offlineConfirmPassword.value = '';
+      await refreshOfflineAccessSettingsUI();
+      toast('Acesso offline autorizado somente neste aparelho por 30 dias.', 'success', 5600);
+    } catch (error) {
+      console.error(error);
+      const messages = {
+        ACCOUNT_MISMATCH: 'A conta Google atual não confere com o cofre.',
+        OFFLINE_ACCESS_UNAVAILABLE: 'Este navegador não oferece armazenamento seguro compatível.',
+        OFFLINE_ACCESS_KEY_CREATION_FAILED: 'Não foi possível criar a chave local não exportável.'
+      };
+      el.offlineAccessError.textContent = messages[error.message] || 'Senha mestra incorreta ou autorização local indisponível.';
+    } finally {
+      el.offlineAccessEnableBtn.disabled = false;
+    }
+  }
+
+  async function refreshOfflineAccess() {
+    if (!state.googleVerified || !KeyronDrive.isConnected()) {
+      toast('Verifique sua conta Google para revalidar este aparelho.', 'warning');
+      return;
+    }
+    el.offlineAccessRefreshBtn.disabled = true;
+    try {
+      const ownerBinding = await currentAccountBinding();
+      if (!ownerBinding || ownerBinding !== state.bundle.ownerBinding) throw new Error('ACCOUNT_MISMATCH');
+      await KeyronOfflineAccess.refresh({
+        vaultId: state.bundle.vaultId,
+        ownerBinding,
+        deviceId: KeyronSaveEngine.deviceId,
+        deviceLabel: el.offlineDeviceLabel.value || defaultDeviceLabel(),
+        operationId: state.bundle.operationId,
+        revision: Number(state.bundle.revision),
+        trustDays: KeyronConfig.OFFLINE_TRUST_DAYS
+      });
+      await refreshOfflineAccessSettingsUI();
+      toast('Autorização offline revalidada por mais 30 dias.', 'success');
+    } catch (error) {
+      console.error(error);
+      toast('Não foi possível revalidar. Remova e autorize este aparelho novamente.', 'error', 5200);
+    } finally {
+      el.offlineAccessRefreshBtn.disabled = false;
+    }
+  }
+
+  async function disableOfflineAccess() {
+    const confirmed = await askConfirm({
+      title: 'Remover acesso offline',
+      message: 'Este aparelho voltará a exigir o Google antes de mostrar a senha mestra. O cofre cifrado local não será apagado.',
+      confirmLabel: 'Remover autorização',
+      kind: 'danger',
+      kicker: 'DISPOSITIVO CONFIÁVEL'
+    });
+    if (!confirmed) return;
+    await KeyronOfflineAccess.revoke(state.vault.id);
+    clearOfflineSession();
+    await refreshOfflineAccessSettingsUI();
+    toast('Acesso offline removido deste aparelho.', 'info');
+  }
+
   async function savePreferences() {
     state.vault.preferences = {
       ...state.vault.preferences,
@@ -2013,6 +2253,11 @@
 
   async function prepareImport(file) {
     if (!file) return;
+    if (!state.googleVerified || !KeyronDrive.isConnected()) {
+      toast('A importação de um cofre exige verificação Google para vincular o arquivo à conta correta.', 'warning', 5600);
+      el.importInput.value = '';
+      return;
+    }
     try {
       const maxBytes = Number(KeyronConfig.MAX_BUNDLE_BYTES || 67108864);
       if (file.size > maxBytes) throw new Error('BUNDLE_TOO_LARGE');
@@ -2044,7 +2289,8 @@
       const result = await KeyronCrypto.unlockBundle(password, sourceBundle);
       const vault = KeyronVault.normalize(result.vault);
       const ownerAccountId = googleAccountIdentifier();
-      const expectedBinding = ownerAccountId ? await KeyronCrypto.hashAccountIdentifier(ownerAccountId) : null;
+      if (!state.googleVerified || !ownerAccountId) throw new Error('GOOGLE_REQUIRED_FOR_IMPORT');
+      const expectedBinding = await KeyronCrypto.hashAccountIdentifier(ownerAccountId);
       let bundle = sourceBundle;
       let key = result.key;
 
@@ -2075,6 +2321,9 @@
 
       await KeyronStorage.saveRecovery(state.preImportBundle).catch(() => null);
       if (KeyronDrive.isConnected() && state.preImportBundle) await KeyronDrive.createSnapshot(state.preImportBundle).catch(() => null);
+      await KeyronOfflineAccess.revoke(state.preImportBundle?.vaultId).catch(() => null);
+      await KeyronOfflineAccess.revoke(bundle.vaultId).catch(() => null);
+      clearOfflineSession();
       state.bundle = bundle;
       state.key = key;
       state.vault = vault;
@@ -2601,6 +2850,12 @@
     el.recoveryCodeCopy.addEventListener('click', () => copyValue(el.recoveryCodeValue.textContent, 'Chave de recuperação'));
     el.recoveryRegenerateBtn.addEventListener('click', () => handleRecoveryRegenerate());
     el.backGoogle.addEventListener('click', () => {
+      if (state.offlineAuthorized) {
+        clearOfflineSession();
+        showGoogleStep();
+        if (navigator.onLine === false) el.googleState.textContent = 'Sem internet. A autorização offline continua salva; volte quando quiser ou aguarde a conexão.';
+        return;
+      }
       if (state.accessMode === 'import') {
         state.pendingImportBundle = null;
         state.bundle = state.preImportBundle;
@@ -2797,6 +3052,10 @@
     el.biometricEnableBtn.addEventListener('click', enableBiometric);
     el.biometricConfirmPassword.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); enableBiometric(); } });
     el.biometricDisableBtn.addEventListener('click', disableBiometric);
+    el.offlineAccessEnableBtn.addEventListener('click', enableOfflineAccess);
+    el.offlineConfirmPassword.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); enableOfflineAccess(); } });
+    el.offlineAccessRefreshBtn.addEventListener('click', refreshOfflineAccess);
+    el.offlineAccessDisableBtn.addEventListener('click', disableOfflineAccess);
 
     $$('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog)?.close()));
 
@@ -2830,7 +3089,7 @@
       }
       state.hiddenAt = Date.now();
       KeyronSaveEngine.flush(900).catch(() => null);
-      if (state.needsInitialPush) syncToDrive();
+      if (state.needsInitialPush && state.googleVerified) syncToDrive();
       if (state.key) {
         state.hiddenLockTimer = setTimeout(() => {
           if (document.hidden && state.key) {
@@ -2841,10 +3100,14 @@
     });
 
     window.addEventListener('online', () => {
-      if (state.needsInitialPush) scheduleDriveSync(50);
+      if (state.offlineAuthorized) {
+        setSyncStatus('trusted');
+        toast('Internet disponível. Verifique o Google pelo indicador de sincronização para comparar e enviar alterações.', 'info', 5200);
+      } else if (state.needsInitialPush && state.googleVerified) scheduleDriveSync(50);
     });
     window.addEventListener('offline', () => {
-      if (state.needsInitialPush) setSyncStatus('offline');
+      if (state.offlineAuthorized) setSyncStatus('trusted');
+      else if (state.needsInitialPush) setSyncStatus('offline');
     });
     window.addEventListener('pagehide', (event) => {
       KeyronSaveEngine.flush(700).catch(() => null);
@@ -2859,6 +3122,9 @@
         scrubSensitiveUi();
         closeAllDialogs();
         if (state.googleVerified && KeyronDrive.isConnected()) {
+          configureMasterStep('unlock');
+          showMasterStep();
+        } else if (state.offlineAuthorized) {
           configureMasterStep('unlock');
           showMasterStep();
         } else {
@@ -2913,8 +3179,9 @@
         toast('Outra aba do Keyron também está aberta. O salvamento remoto será serializado para reduzir conflitos.', 'warning', 5000);
       }
     });
-    showGoogleStep();
-    if (!configured()) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
+    const enteredOffline = navigator.onLine === false ? await authorizeOfflineSession('network-offline') : false;
+    if (!enteredOffline) showGoogleStep();
+    if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch((error) => console.warn('Service Worker:', error));

@@ -1160,3 +1160,38 @@ body.biometric-first #biometric-unlock-btn { display: inline-flex; }
   .settings-card { padding: 17px; border-radius: 16px; }
   .breach-actions .btn { width: 100%; }
 }
+
+/* v1.0.F — acesso offline autorizado por dispositivo */
+.offline-access-banner {
+  margin: 0 0 16px;
+  padding: 12px 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid rgba(75, 214, 255, .24);
+  border-radius: 12px;
+  background: rgba(31, 101, 139, .13);
+  color: #ccefff;
+}
+.offline-access-banner > span:last-child { display: grid; gap: 3px; }
+.offline-access-banner b { font-size: 12px; }
+.offline-access-banner small { color: #86a9bb; font-size: 10px; line-height: 1.45; }
+.offline-access-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 14px rgba(75, 214, 255, .72);
+}
+.offline-access-form { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(190px, 1fr) auto; gap: 8px; align-items: center; }
+.offline-access-active { display: grid; gap: 9px; }
+.offline-access-active .fine-print { margin: 0 !important; }
+.sync-chip--trusted { color: #bdefff; border-color: rgba(75,214,255,.24); }
+.sync-chip--trusted span { background: var(--cyan); box-shadow: 0 0 10px rgba(75,214,255,.55); }
+
+@media (max-width: 760px) {
+  .offline-access-form { grid-template-columns: 1fr; }
+  .offline-access-form .btn { width: 100%; }
+}

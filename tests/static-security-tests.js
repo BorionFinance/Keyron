@@ -17,7 +17,8 @@ const breach = read('js/breach-check.js');
 const config = read('js/config.js');
 const sw = read('service-worker.js');
 const frameGuard = read('js/frame-guard.js');
-const allSource = [index, app, cryptoJs, drive, biometric, storage, saveEngine, vault, breach, config, sw, frameGuard].join('\n');
+const offlineAccess = read('js/offline-access.js');
+const allSource = [index, app, cryptoJs, drive, biometric, storage, saveEngine, vault, breach, config, sw, frameGuard, offlineAccess].join('\n');
 
 let passed = 0;
 function assert(condition, message) { if (!condition) throw new Error(message); }
@@ -37,11 +38,11 @@ try {
     for (const file of files) cp.execFileSync(process.execPath, ['--check', path.join(root, file)], { stdio: 'pipe' });
   });
 
-  test('Versão oficial 1.0.0 é consistente', () => {
-    assert(config.includes("APP_VERSION: '1.0.0'"), 'config sem 1.0.0');
-    assert(index.includes('v1.0.0'), 'HTML sem 1.0.0');
-    assert(sw.includes("keyron-shell-v1.0.0"), 'cache sem 1.0.0');
-    assert(!/0\.6\.3/.test([index, config, sw].join('\n')), 'referência antiga 0.6.3');
+  test('Versão oficial 1.0.F é consistente', () => {
+    assert(config.includes("APP_VERSION: '1.0.F'"), 'config sem 1.0.F');
+    assert(index.includes('v=1.0.F'), 'HTML sem 1.0.F');
+    assert(sw.includes("keyron-shell-v1.0.F"), 'cache sem 1.0.F');
+    assert(!/0\.6\.3|1\.0\.0/.test([index, config, sw].join('\n')), 'referência de versão antiga');
   });
 
   test('Referências locais do HTML existem', () => {
@@ -135,6 +136,59 @@ try {
     const storageLines = drive.split('\n').filter((line) => /localStorage|sessionStorage/.test(line));
     assert(storageLines.every((line) => !/accessToken|access_token|Authorization/.test(line)), 'token persistido');
     assert(drive.includes('let accessToken = null'), 'token em memória ausente');
+  });
+
+  test('Autorização offline usa chave HMAC SHA-256 não exportável em IndexedDB separado', () => {
+    assert(offlineAccess.includes("const DB_NAME = 'keyron-offline-access-v1'"), 'banco separado ausente');
+    assert(offlineAccess.includes("{ name: 'HMAC', hash: 'SHA-256', length: 256 }"), 'HMAC-SHA-256 ausente');
+    assert(offlineAccess.includes("false,") && offlineAccess.includes("['sign', 'verify']"), 'chave local não exportável ausente');
+    assert(offlineAccess.includes('key.extractable === false'), 'validação de não exportabilidade ausente');
+    assert(!/localStorage|sessionStorage/.test(offlineAccess), 'autorização offline tem fallback fraco');
+  });
+
+  test('Atualizações da autorização offline são serializadas entre salvamentos e abas', () => {
+    assert(offlineAccess.includes('const mutationQueues = new Map()'), 'fila local de mutações ausente');
+    assert(offlineAccess.includes('navigator?.locks?.request') && offlineAccess.includes("mode: 'exclusive'"), 'Web Locks entre abas ausente');
+    assert(offlineAccess.includes('withMutationLock(bundle?.vaultId'), 'avanço da âncora não é serializado');
+  });
+
+  test('Selo offline vincula conta, cofre, dispositivo, validade e linhagem', () => {
+    for (const token of ['vaultId', 'ownerBinding', 'deviceId', 'operationId', 'revision', 'verifiedAt', 'expiresAt', 'lastSeenAt', 'nonce']) {
+      assert(offlineAccess.includes(`record.${token}`), `campo offline não selado: ${token}`);
+    }
+    assert(offlineAccess.includes("'KEYRON_OFFLINE_ACCESS'"), 'separação de domínio HMAC ausente');
+    assert(offlineAccess.includes("crypto.subtle.verify('HMAC'"), 'prova HMAC não é verificada');
+  });
+
+  test('Acesso offline falha fechado em expiração, relógio e rollback', () => {
+    assert(offlineAccess.includes('OFFLINE_ACCESS_EXPIRED'), 'expiração não bloqueia');
+    assert(offlineAccess.includes('OFFLINE_ACCESS_CLOCK_ROLLBACK'), 'retrocesso do relógio não bloqueia');
+    assert(offlineAccess.includes('OFFLINE_ACCESS_LINEAGE_MISMATCH'), 'linhagem divergente não bloqueia');
+    assert(offlineAccess.includes('OFFLINE_ACCESS_REVISION_ROLLBACK'), 'revisão regressiva não bloqueia');
+    assert(offlineAccess.includes('bundle?.ancestors') && offlineAccess.includes('record.operationId'), 'descendência não é comprovada');
+  });
+
+  test('Aplicação exige autorização local antes da senha e Google antes de sincronizar', () => {
+    assert(app.includes("authorizeOfflineSession('network-offline')"), 'entrada offline inicial ausente');
+    assert(app.includes("authorizeOfflineSession('google-unavailable')"), 'fallback quando Google falha ausente');
+    assert(app.includes('bundleAuthorizedForUnlock(rawBundle)'), 'desbloqueio não valida autorização offline');
+    assert(app.includes('!state.googleVerified || !KeyronDrive.isConnected()'), 'operações remotas não exigem Google');
+    assert(app.includes("setSyncStatus(state.offlineAuthorized ? 'trusted'"), 'estado offline confiável ausente');
+  });
+
+  test('Operações sensíveis não criam divergência enquanto offline', () => {
+    assert(app.includes('Verifique o Google antes de trocar a senha mestra'), 'troca de senha permitida offline');
+    assert(app.includes('Verifique o Google antes de gerar uma nova chave de recuperação'), 'nova recuperação permitida offline');
+    assert(app.includes('GOOGLE_REQUIRED_FOR_IMPORT'), 'importação não exige Google');
+    assert(app.includes("if (!state.googleVerified)") && app.includes("A recuperação exige uma nova verificação Google"), 'recuperação por chave permitida offline');
+  });
+
+  test('PWA inclui módulo e interface de dispositivo confiável', () => {
+    assert(index.includes('js/offline-access.js?v=1.0.F'), 'script offline ausente no HTML');
+    assert(sw.includes("'./js/offline-access.js?v=1.0.F'"), 'script offline ausente no cache PWA');
+    assert(index.includes('id="offline-access-section"'), 'configuração offline ausente');
+    assert(index.includes('id="offline-access-banner"'), 'aviso de sessão offline ausente');
+    assert(config.includes('OFFLINE_TRUST_DAYS: 30'), 'validade offline não configurada em 30 dias');
   });
 
   test('Drive usa ETag e If-Match contra sobrescrita concorrente', () => {
@@ -249,7 +303,7 @@ try {
     for (const icon of manifest.icons || []) assert(fs.existsSync(path.join(root, icon.src)), `ícone ausente: ${icon.src}`);
   });
 
-  console.log(`\n${passed}/30 testes estáticos de segurança aprovados.`);
+  console.log(`\n${passed}/37 testes estáticos de segurança aprovados.`);
 } catch (error) {
   console.error(`✗ ${error.message}`);
   process.exit(1);

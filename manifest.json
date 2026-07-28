@@ -1,7 +1,7 @@
 {
   "name": "Keyron — Cofre privado",
   "short_name": "Keyron",
-  "description": "Cofre de credenciais com criptografia local e sincronização pelo seu próprio Google Drive.",
+  "description": "Cofre de credenciais com criptografia local, acesso offline autorizado e sincronização pelo seu próprio Google Drive.",
   "id": "keyron-vault-v2",
   "start_url": "./index.html",
   "scope": "./",

@@ -1,13 +1,14 @@
-# Testes — Keyron v1.0.0
+# Testes — Keyron v1.0.F
 
 ## Suíte automatizada
 
-Cada rodada executa 77 verificações:
+Cada rodada executa 98 verificações:
 
 - 15 testes de núcleo: criação, ordenação, migração, exclusão, AES-GCM, KDF, recuperação e reordenação de gavetas.
 - 25 testes dinâmicos de segurança: adulteração de conteúdo/metadados, vínculo de conta, KDF malicioso, Base64 inválido, linhagem, revisão regressiva, rollback de envelopes, recuperação, normalização e limites.
 - 7 testes do Drive com mocks: OAuth, `permissionId`, download validado, ETag, `If-Match`, conflito 412, troca de token, limite de upload e falha fechada sem ETag.
-- 30 testes estáticos: sintaxe, referências, CSP, clickjacking, ausência de segredos, escopo OAuth, token em memória, criptografia, biometria, WAL, URLs, logos, importações, HIBP, bloqueio, BFCache, Service Worker, áudio e manifesto.
+- 14 testes do acesso offline: inscrição, HMAC não exportável, cópia sem chave, adulteração, conta e dispositivo divergentes, avanço de linhagem, concorrência, rollback, ramificação paralela, expiração, relógio regressivo e revogação.
+- 37 testes estáticos: sintaxe, referências, CSP, clickjacking, ausência de segredos, escopo OAuth, token em memória, criptografia, biometria, autorização offline, serialização entre abas, WAL, URLs, logos, importações, HIBP, bloqueio, BFCache, Service Worker, áudio e manifesto.
 
 Execute uma rodada:
 
@@ -23,7 +24,22 @@ node tests/run-all.js 18
 
 ## Resultado da homologação
 
-Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Resultado: **1.386/1.386 verificações aprovadas**, sem falhas.
+Em 28/07/2026, a suíte completa foi executada em 18 rodadas consecutivas. Resultado: **1.764/1.764 verificações aprovadas**, sem falhas.
+
+## Casos específicos do modo offline
+
+A suíte confirma que:
+
+- o registro não funciona sem a CryptoKey local;
+- a CryptoKey HMAC é criada como não exportável;
+- qualquer alteração nos metadados assinados invalida a autorização;
+- outra conta, outro dispositivo ou outro cofre não são aceitos;
+- a versão local precisa manter a linhagem autenticada;
+- rollback e ramificações paralelas falham fechado;
+- a âncora não regride em salvamentos concorrentes;
+- validade vencida e retrocesso relevante do relógio bloqueiam a entrada;
+- remover a autorização apaga o acesso daquele navegador;
+- a aplicação não sincroniza, importa, troca a senha mestra nem gera nova recuperação sem Google.
 
 ## Ambiente externo
 
@@ -32,7 +48,10 @@ O ambiente isolado de empacotamento não autentica numa conta Google real e não
 - popup e consentimento reais do Google;
 - leitura e escrita reais do Google Drive;
 - presença real do ETag exposto ao navegador;
+- instalação e atualização reais do Service Worker no computador e no celular;
+- persistência real da CryptoKey não exportável no navegador de cada aparelho;
 - autenticação de plataforma por digital, rosto ou PIN;
+- comportamento após colocar o aparelho em modo avião e encerrar/reabrir o PWA;
 - resposta ao vivo do Pwned Passwords;
 - drag-and-drop e comportamento visual em navegadores/dispositivos reais;
 - cabeçalhos entregues pelo servidor na primeira navegação.

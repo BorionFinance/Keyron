@@ -525,7 +525,7 @@ body::before {
   pointer-events: none;
   display: grid;
   place-items: center;
-  background-image: url("assets/keyron-watermark.png");
+  background-image: url("../assets/keyron-watermark.png");
   background-repeat: no-repeat;
   background-position: center;
   background-size: min(1100px, 84vw) auto;

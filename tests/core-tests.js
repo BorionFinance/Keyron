@@ -151,7 +151,7 @@ async function test(name, fn) {
   await test('Cofre novo gera chave de recuperação própria e independente da senha', async () => {
     const vault = KeyronVault.emptyVault();
     const created = await KeyronCrypto.createBundle('senha mestra bem longa e exclusiva 1', vault);
-    assert(created.bundle.formatVersion === 3, 'formatVersion não é 3');
+    assert(created.bundle.formatVersion === 4, 'formatVersion não é 4');
     assert(Boolean(created.bundle.wrappedKey), 'sem wrappedKey (senha)');
     assert(Boolean(created.bundle.recovery?.wrappedKey), 'sem wrappedKey (recuperação)');
     assert(typeof created.recoveryCode === 'string' && created.recoveryCode.length > 20, 'chave de recuperação muito curta');

@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  if (window.__KEYRON_FRAME_BLOCKED__) return;
 
   const state = {
     bundle: null,
@@ -26,6 +27,9 @@
     otherTabWarningAt: 0,
     autoLockTimer: null,
     clipboardTimer: null,
+    clipboardValue: null,
+    hiddenLockTimer: null,
+    hiddenAt: 0,
     pendingImportBundle: null,
     preImportBundle: null,
     pendingCsvImport: null,
@@ -259,6 +263,33 @@
     });
   }
 
+
+  function googleAccountIdentifier() {
+    return String(state.googleUser?.id || state.googleUser?.email || '').trim();
+  }
+
+  async function currentAccountBinding() {
+    const identifier = googleAccountIdentifier();
+    return identifier ? KeyronCrypto.hashAccountIdentifier(identifier) : null;
+  }
+
+  async function belongsToCurrentGoogleAccount(bundle) {
+    if (!bundle?.ownerBinding) return true; // cofre anterior à vinculação: será vinculado após o primeiro desbloqueio.
+    const binding = await currentAccountBinding();
+    return Boolean(binding && binding === bundle.ownerBinding);
+  }
+
+  function safeEncryptedBundle(value) {
+    if (!value) return null;
+    try {
+      KeyronCrypto.assertValidBundle(value);
+      return value;
+    } catch (error) {
+      console.warn('[Keyron] bundle cifrado inválido ignorado', error?.message);
+      return null;
+    }
+  }
+
   function configured() {
     const clientId = String(KeyronConfig.GOOGLE_CLIENT_ID || '').trim();
     return /^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(clientId);
@@ -271,6 +302,7 @@
     if (value.includes('access_denied')) return 'O acesso foi recusado pela conta Google.';
     if (value.includes('origin') || value.includes('redirect_uri_mismatch')) return `Este endereço ainda não está autorizado no Google Cloud: ${location.origin}`;
     if (value.includes('invalid_client')) return 'O Client ID do Google não foi aceito. Confira a credencial OAuth do tipo Aplicativo da Web.';
+    if (value.includes('google_account_id_unavailable')) return 'O Google não forneceu um identificador verificável para esta conta. Tente entrar novamente.';
     return message || 'Falha na verificação do Google.';
   }
 
@@ -280,9 +312,20 @@
   }
 
   async function chooseBundle(remoteInfo) {
-    const local = state.bundle;
-    const remote = remoteInfo?.bundle || null;
+    let local = safeEncryptedBundle(state.bundle);
+    let remote = safeEncryptedBundle(remoteInfo?.bundle || null);
     state.needsInitialPush = false;
+
+    if (remote && !(await belongsToCurrentGoogleAccount(remote))) {
+      await KeyronStorage.saveRecovery(remote).catch(() => null);
+      throw new Error('REMOTE_ACCOUNT_MISMATCH');
+    }
+    if (local && !(await belongsToCurrentGoogleAccount(local))) {
+      await KeyronStorage.saveRecovery(local).catch(() => null);
+      local = null;
+      if (!remote) throw new Error('LOCAL_ACCOUNT_MISMATCH');
+      toast('O cofre local pertence a outra conta Google e foi preservado sem ser enviado para esta conta.', 'warning', 6500);
+    }
 
     if (!local && !remote) return null;
     if (!local && remote) {
@@ -296,23 +339,63 @@
 
     const localId = local.vaultId || 'legacy';
     const remoteId = remote.vaultId || 'legacy';
-    const localIsNewer = parseTime(local) >= parseTime(remote);
-
     if (localId !== remoteId) {
-      const chosen = localIsNewer ? local : remote;
-      const recovery = localIsNewer ? remote : local;
-      await KeyronStorage.saveRecovery(recovery).catch(() => null);
-      toast('Foram encontrados dois cofres diferentes. O mais recente foi aberto e o outro ficou preservado como recuperação local.', 'warning', 6500);
-      state.needsInitialPush = localIsNewer;
-      await KeyronStorage.saveCurrent(chosen);
-      return chosen;
+      await KeyronStorage.saveRecovery(local).catch(() => null);
+      await KeyronStorage.saveCurrent(remote);
+      toast('Foram encontrados dois cofres diferentes. O Drive foi mantido como fonte principal e o cofre local ficou preservado para recuperação, sem sobrescrita automática.', 'warning', 8000);
+      return remote;
     }
 
-    if (localIsNewer) {
-      state.needsInitialPush = parseTime(local) > parseTime(remote);
+    const localVersion = Number(local.formatVersion || 0);
+    const remoteVersion = Number(remote.formatVersion || 0);
+    const localOperation = String(local.operationId || '');
+    const remoteOperation = String(remote.operationId || '');
+
+    if (localVersion >= 4 && remoteVersion >= 4 && localOperation && remoteOperation) {
+      if (localOperation === remoteOperation) {
+        await KeyronStorage.saveCurrent(remote);
+        return remote;
+      }
+
+      const localDescendsRemote = Array.isArray(local.ancestors) && local.ancestors.includes(remoteOperation);
+      const remoteDescendsLocal = Array.isArray(remote.ancestors) && remote.ancestors.includes(localOperation);
+      if (localDescendsRemote && !remoteDescendsLocal) {
+        state.needsInitialPush = true;
+        return local;
+      }
+      if (remoteDescendsLocal && !localDescendsRemote) {
+        await KeyronStorage.saveCurrent(remote);
+        return remote;
+      }
+
+      // As duas versões são válidas, mas não pertencem à mesma cadeia de operações.
+      // O Drive permanece canônico; a cópia local é guardada para recuperação manual.
+      await KeyronStorage.saveRecovery(local).catch(() => null);
+      await KeyronStorage.saveCurrent(remote);
+      toast('Alterações paralelas foram detectadas. O Keyron bloqueou a sobrescrita, manteve o Drive como versão atual e preservou a cópia local para recuperação.', 'warning', 8500);
+      return remote;
+    }
+
+    // Migração de versões antigas: uma versão com metadados autenticados sempre vence
+    // outra sem essa proteção. Entre duas versões antigas, usa revisão e horário apenas
+    // uma vez; após o desbloqueio, o cofre será atualizado para o formato atual.
+    if (localVersion >= 4 && remoteVersion < 4) {
+      state.needsInitialPush = true;
       return local;
     }
+    if (remoteVersion >= 4 && localVersion < 4) {
+      await KeyronStorage.saveRecovery(local).catch(() => null);
+      await KeyronStorage.saveCurrent(remote);
+      return remote;
+    }
 
+    const localRevision = Number(local.revision || 0);
+    const remoteRevision = Number(remote.revision || 0);
+    const localIsNewer = localRevision !== remoteRevision ? localRevision > remoteRevision : parseTime(local) > parseTime(remote);
+    if (localIsNewer) {
+      state.needsInitialPush = true;
+      return local;
+    }
     await KeyronStorage.saveCurrent(remote);
     return remote;
   }
@@ -379,7 +462,15 @@
       showMasterStep();
     } catch (error) {
       console.error(error);
-      if (state.bundle) {
+      if (['LOCAL_ACCOUNT_MISMATCH', 'REMOTE_ACCOUNT_MISMATCH'].includes(error?.message)) {
+        KeyronDrive.disconnect();
+        state.googleVerified = false;
+        state.googleUser = null;
+        state.forceAccountChoiceNext = true;
+        showGoogleStep();
+        el.googleState.textContent = 'Este cofre pertence a outra conta Google. Selecione a conta correta.';
+        toast('Conta Google diferente da vinculada ao cofre. Nenhum arquivo foi enviado ou aberto.', 'error', 7000);
+      } else if (safeEncryptedBundle(state.bundle)) {
         toast('O Google foi verificado, mas o Drive não respondeu. O cofre cifrado deste dispositivo ainda pode ser aberto.', 'warning', 5500);
         configureMasterStep('unlock');
         showMasterStep();
@@ -457,6 +548,7 @@
       if (!code) return;
       el.recoverySubmit.disabled = true;
       try {
+        if (!(await belongsToCurrentGoogleAccount(state.bundle))) throw new Error('ACCOUNT_MISMATCH');
         const dek = await KeyronCrypto.unlockWithRecoveryCode(code, state.bundle);
         state.pendingRecoveryDek = dek;
         state.recoveryStage = 'newpass';
@@ -465,7 +557,9 @@
         el.recoverySubmit.textContent = 'Definir nova senha e desbloquear';
         setTimeout(() => el.recoveryNewPassword.focus(), 70);
       } catch (error) {
-        el.recoveryError.textContent = 'Chave de recuperação inválida.';
+        el.recoveryError.textContent = error?.message === 'ACCOUNT_MISMATCH'
+          ? 'Este cofre está vinculado a outra conta Google. Troque para a conta correta.'
+          : 'Chave de recuperação inválida.';
       } finally {
         el.recoverySubmit.disabled = false;
       }
@@ -493,7 +587,11 @@
       const dek = state.pendingRecoveryDek;
       const decryptedVault = await KeyronCrypto.decryptPayload(dek, state.bundle);
       const normalized = KeyronVault.normalize(decryptedVault);
-      const rewrapped = await KeyronCrypto.changePassword(dek, next, state.bundle);
+      const rewrapped = await KeyronCrypto.changePassword(dek, next, state.bundle, {
+        ownerAccountId: googleAccountIdentifier(),
+        deviceId: KeyronSaveEngine.deviceId,
+        saveReason: 'password-recovery'
+      });
 
       const hadBiometric = await KeyronBiometric.hasRecord(normalized.id);
       if (hadBiometric) await KeyronBiometric.forget(normalized.id);
@@ -529,7 +627,7 @@
   async function handleRecoveryRegenerate() {
     const confirmed = await askConfirm({
       title: 'Gerar nova chave de recuperação',
-      message: 'A chave de recuperação atual deixará de funcionar. Você verá a nova chave uma única vez — guarde-a antes de fechar.',
+      message: 'A chave atual deixará de abrir o cofre principal. Backups antigos continuam protegidos pela chave vigente quando foram criados. Você verá a nova chave uma única vez — guarde-a antes de fechar.',
       confirmLabel: 'Gerar nova chave',
       kind: 'danger',
       kicker: 'RECUPERAÇÃO'
@@ -538,7 +636,11 @@
 
     el.recoveryRegenerateBtn.disabled = true;
     try {
-      const result = await KeyronCrypto.regenerateRecovery(state.key, state.bundle);
+      const result = await KeyronCrypto.regenerateRecovery(state.key, state.bundle, {
+        ownerAccountId: googleAccountIdentifier(),
+        deviceId: KeyronSaveEngine.deviceId,
+        saveReason: 'recovery-regenerate'
+      });
       state.bundle = result.bundle;
       state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'recovery-regenerate');
       renderRecoveryStatus();
@@ -548,6 +650,7 @@
         toast('Nova chave de recuperação gerada e sincronizada.', 'success');
       } catch (driveError) {
         console.error(driveError);
+        if (driveError?.code === 'DRIVE_CONFLICT' && await handleDriveConflict(state.bundle)) return;
         scheduleSyncRetry();
         toast('Nova chave de recuperação gerada. O Drive será atualizado assim que possível.', 'warning');
       }
@@ -716,15 +819,19 @@
   async function changeMasterPassword(newPassword) {
     setBusy(true, 'Trocando a senha mestra…', 'Protegendo o cofre com a nova senha.');
     try {
-      const oldBundle = state.bundle;
-      await KeyronStorage.saveRecovery(oldBundle).catch(() => null);
-      if (KeyronDrive.isConnected()) await KeyronDrive.createSnapshot(oldBundle).catch(() => null);
-
       const hasKeyManagement = Boolean(state.bundle.wrappedKey);
       if (hasKeyManagement) {
-        state.bundle = await KeyronCrypto.changePassword(state.key, newPassword, state.bundle);
+        state.bundle = await KeyronCrypto.changePassword(state.key, newPassword, state.bundle, {
+          ownerAccountId: googleAccountIdentifier(),
+          deviceId: KeyronSaveEngine.deviceId,
+          saveReason: 'password-change'
+        });
       } else {
-        const migrated = await KeyronCrypto.rekeyBundle(newPassword, state.vault, state.vault.id);
+        const migrated = await KeyronCrypto.rekeyBundle(newPassword, state.vault, state.vault.id, {
+          ownerAccountId: googleAccountIdentifier(),
+          deviceId: KeyronSaveEngine.deviceId,
+          saveReason: 'password-change-migration'
+        });
         state.key = migrated.key;
         state.bundle = migrated.bundle;
         if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
@@ -754,6 +861,7 @@
         toast(hadBiometric ? 'Senha mestra trocada e sincronizada. A biometria foi desativada — reative se quiser.' : 'Senha mestra trocada e sincronizada no Drive.', 'success', 6000);
       } catch (driveError) {
         console.error(driveError);
+        if (driveError?.code === 'DRIVE_CONFLICT' && await handleDriveConflict(state.bundle)) return;
         setSyncStatus('error');
         scheduleSyncRetry();
         toast('Senha trocada neste dispositivo. O Drive será atualizado assim que a conexão responder — use a senha nova a partir de agora.', 'warning', 7000);
@@ -800,7 +908,11 @@
     setBusy(true, 'Criando o cofre…', 'Derivando uma chave forte e cifrando a estrutura inicial.');
     try {
       state.vault = KeyronVault.emptyVault();
-      const created = await KeyronCrypto.createBundle(password, state.vault);
+      const created = await KeyronCrypto.createBundle(password, state.vault, {
+        ownerAccountId: googleAccountIdentifier(),
+        deviceId: KeyronSaveEngine.deviceId,
+        saveReason: 'vault-create'
+      });
       state.key = created.key;
       state.bundle = created.bundle;
       state.pendingRecoveryReveal = created.recoveryCode;
@@ -819,6 +931,7 @@
         toast('Cofre Keyron criado e cifrado no seu Drive.', 'success');
       } catch (driveError) {
         console.error(driveError);
+        if (driveError?.code === 'DRIVE_CONFLICT' && await handleDriveConflict(state.bundle)) return;
         state.needsInitialPush = true;
         setSyncStatus('error');
         scheduleSyncRetry();
@@ -848,20 +961,52 @@
 
     setBusy(true, 'Abrindo o cofre…', 'A chave está sendo derivada localmente neste dispositivo.');
     try {
-      const rawBundle = state.bundle;
+      const rawBundle = safeEncryptedBundle(state.bundle);
+      if (!rawBundle) throw new Error('INVALID_BUNDLE');
+      if (!(await belongsToCurrentGoogleAccount(rawBundle))) throw new Error('ACCOUNT_MISMATCH');
+
       const result = await KeyronCrypto.unlockBundle(password, rawBundle);
       const normalized = KeyronVault.normalize(result.vault);
-      const needsMigration = result.legacy || !rawBundle.wrappedKey || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS;
+      const ownerAccountId = googleAccountIdentifier();
+      const expectedBinding = ownerAccountId ? await KeyronCrypto.hashAccountIdentifier(ownerAccountId) : null;
+      const needsRekey = result.legacy || !rawBundle.wrappedKey;
+      const needsUpgrade = Number(rawBundle.formatVersion || 0) < KeyronCrypto.FORMAT_VERSION ||
+        !result.metadataProtected ||
+        result.iterations < KeyronCrypto.CURRENT_ITERATIONS ||
+        !rawBundle.ownerBinding ||
+        rawBundle.ownerBinding !== expectedBinding;
 
-      if (needsMigration) {
-        const migrated = await KeyronCrypto.rekeyBundle(password, normalized, normalized.id);
+      if (needsRekey) {
+        const migrated = await KeyronCrypto.rekeyBundle(password, normalized, normalized.id, {
+          ownerAccountId,
+          deviceId: KeyronSaveEngine.deviceId,
+          saveReason: 'vault-security-migration'
+        });
         state.key = migrated.key;
         state.bundle = migrated.bundle;
         state.vault = normalized;
-        state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-migration');
+        state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-security-migration');
         state.needsInitialPush = true;
         if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
-        toast('Cofre antigo migrado para a estrutura Keyron sem perder credenciais.', 'success', 5000);
+        toast('Cofre antigo migrado para a proteção atual sem perder credenciais.', 'success', 5000);
+      } else if (needsUpgrade) {
+        const upgraded = result.iterations < KeyronCrypto.CURRENT_ITERATIONS
+          ? await KeyronCrypto.changePassword(result.key, password, rawBundle, {
+              ownerAccountId,
+              deviceId: KeyronSaveEngine.deviceId,
+              saveReason: 'vault-security-upgrade'
+            })
+          : await KeyronCrypto.updateBundle(result.key, rawBundle, normalized, {
+              ownerAccountId,
+              deviceId: KeyronSaveEngine.deviceId,
+              saveReason: 'vault-security-upgrade'
+            });
+        state.key = result.key;
+        state.bundle = upgraded;
+        state.vault = normalized;
+        state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-security-upgrade');
+        state.needsInitialPush = true;
+        toast('Proteções de integridade e vínculo com a conta Google foram atualizadas.', 'success', 5000);
       } else {
         state.key = result.key;
         state.vault = normalized;
@@ -877,7 +1022,15 @@
       state.failedAttempts += 1;
       state.key = null;
       state.vault = null;
-      el.masterError.textContent = error.message === 'UNSUPPORTED_FORMAT' ? 'Este arquivo usa uma versão de cofre ainda não suportada.' : 'Senha mestra incorreta ou arquivo de cofre inválido.';
+      if (error.message === 'UNSUPPORTED_FORMAT') {
+        el.masterError.textContent = 'Este arquivo usa uma versão de cofre ainda não suportada.';
+      } else if (error.message === 'ACCOUNT_MISMATCH') {
+        el.masterError.textContent = 'Este cofre está vinculado a outra conta Google. Troque para a conta correta.';
+      } else if (error.message === 'INVALID_BUNDLE_INTEGRITY') {
+        el.masterError.textContent = 'O arquivo cifrado foi alterado ou corrompido. O Keyron bloqueou a abertura.';
+      } else {
+        el.masterError.textContent = 'Senha mestra incorreta ou arquivo de cofre inválido.';
+      }
     } finally {
       el.masterPassword.value = '';
       setBusy(false);
@@ -920,21 +1073,57 @@
     setTimeout(() => { lockVault().catch(() => null); }, 160);
   }
 
+  async function clearOwnedClipboard() {
+    const owned = state.clipboardValue;
+    state.clipboardValue = null;
+    if (!owned || !navigator.clipboard) return;
+    try {
+      const current = await navigator.clipboard.readText();
+      if (current === owned) await navigator.clipboard.writeText('');
+    } catch { /* permissões de leitura podem ser negadas; o temporizador continua best-effort */ }
+  }
+
+  function scrubSensitiveUi() {
+    [
+      el.masterPassword, el.masterConfirm, el.recoveryCodeInput, el.recoveryNewPassword,
+      el.recoveryNewPasswordConfirm, el.cpCurrent, el.cpNew, el.cpConfirm,
+      el.biometricConfirmPassword, el.fName, el.fUsername, el.fEmail, el.fPassword,
+      el.fUrl, el.fSecret, el.fNotes, el.search
+    ].forEach((input) => { if (input) input.value = ''; });
+    if (el.recoveryCodeValue) el.recoveryCodeValue.textContent = '';
+    [el.board, el.filterStrip, el.activityList, el.categoryList, el.importConflicts, el.logoPreview].forEach((node) => node?.replaceChildren());
+    if (el.vaultSummary) el.vaultSummary.textContent = '';
+    if (el.vaultLastActivity) el.vaultLastActivity.textContent = '';
+    state.pendingRecoveryDek = null;
+    state.pendingRecoveryReveal = null;
+    state.pendingImportBundle = null;
+    state.preImportBundle = null;
+    state.pendingCsvImport = null;
+    state.pendingLogo = null;
+  }
+
   async function lockVault({ signOut = false } = {}) {
     clearTimeout(state.autoLockTimer);
     clearTimeout(state.clipboardTimer);
+    clearTimeout(state.hiddenLockTimer);
+    state.hiddenAt = 0;
+    const clipboardClear = clearOwnedClipboard();
     closeAllDialogs();
-    await KeyronSaveEngine.flush(1200).catch(() => null);
-    if (state.needsInitialPush && KeyronDrive.isConnected()) {
-      await Promise.race([syncToDrive(), new Promise((resolve) => setTimeout(resolve, 1400))]).catch(() => null);
-    }
+
+    // Bloqueio visual e descarte das referências legíveis acontecem antes de qualquer
+    // espera de rede/IndexedDB. A persistência continua somente com bundles cifrados.
     state.key = null;
     state.vault = null;
     state.editingEntryId = null;
     state.editingColumnId = null;
     state.pendingLogo = null;
-    el.board.replaceChildren();
-    el.search.value = '';
+    scrubSensitiveUi();
+
+    await clipboardClear;
+    await KeyronSaveEngine.flush(1200).catch(() => null);
+    if (state.needsInitialPush && KeyronDrive.isConnected()) {
+      await Promise.race([syncToDrive(), new Promise((resolve) => setTimeout(resolve, 1400))]).catch(() => null);
+    }
 
     if (signOut) {
       KeyronDrive.disconnect();
@@ -1021,17 +1210,27 @@
           try {
             state.googleVerified = true;
             state.googleUser = profile || KeyronDrive.getCurrentUser?.() || null;
+            if (state.bundle && !(await belongsToCurrentGoogleAccount(state.bundle))) {
+              KeyronDrive.disconnect();
+              state.googleVerified = false;
+              state.googleUser = null;
+              await lockVault({ signOut: true });
+              toast('A reconexão abriu outra conta Google. O Keyron bloqueou a sincronização.', 'error', 7000);
+              return;
+            }
             const remote = await KeyronDrive.loadBundle();
-            if (remote?.bundle && parseTime(remote.bundle) > parseTime(state.bundle)) {
-              await KeyronStorage.saveRecovery(state.bundle).catch(() => null);
-              state.bundle = remote.bundle;
-              await KeyronStorage.saveCurrent(state.bundle);
-              KeyronSaveEngine.initialize(state.bundle);
+            if (remote?.bundle && !(await belongsToCurrentGoogleAccount(remote.bundle))) throw new Error('REMOTE_ACCOUNT_MISMATCH');
+            const previousOperation = String(state.bundle?.operationId || '');
+            const chosen = await chooseBundle(remote);
+            state.bundle = chosen;
+            KeyronSaveEngine.initialize(chosen);
+            const chosenOperation = String(chosen?.operationId || '');
+            if (chosen && chosenOperation !== previousOperation) {
               state.key = null;
               state.vault = null;
               configureMasterStep('unlock');
               showMasterStep();
-              toast('O Drive tinha uma versão mais recente. Ela foi preservada e precisa ser desbloqueada novamente.', 'warning', 6000);
+              toast('A reconexão encontrou outra versão válida do cofre. A sobrescrita automática foi bloqueada e a versão escolhida precisa ser desbloqueada novamente.', 'warning', 7000);
               return;
             }
             await syncToDrive();
@@ -1052,6 +1251,34 @@
       console.error(error);
       setSyncStatus('error');
       toast('A reconexão com o Google não pôde ser iniciada.', 'error');
+    }
+  }
+
+  async function handleDriveConflict(localBundle) {
+    try {
+      await KeyronStorage.saveRecovery(localBundle).catch(() => null);
+      await KeyronDrive.createSnapshot(localBundle, { conflict: true }).catch(() => null);
+      const remoteInfo = await KeyronDrive.reloadBundle();
+      const remote = safeEncryptedBundle(remoteInfo?.bundle);
+      if (!remote) throw new Error('DRIVE_CONFLICT_REMOTE_MISSING');
+      if (!(await belongsToCurrentGoogleAccount(remote))) throw new Error('REMOTE_ACCOUNT_MISMATCH');
+
+      await KeyronSaveEngine.discardPending();
+      await KeyronStorage.saveCurrent(remote);
+      state.bundle = remote;
+      state.key = null;
+      state.vault = null;
+      state.needsInitialPush = false;
+      state.lastRemoteRevision = Number(remote.revision || 0);
+      KeyronSaveEngine.initialize(remote);
+      configureMasterStep('unlock');
+      showMasterStep();
+      setSyncStatus('synced');
+      toast('Conflito entre dispositivos bloqueado. A versão local foi preservada em Backups e a versão atual do Drive precisa ser desbloqueada novamente.', 'warning', 8500);
+      return true;
+    } catch (error) {
+      console.error('[Keyron] falha ao tratar conflito', error);
+      return false;
     }
   }
 
@@ -1090,11 +1317,20 @@
       }
     } catch (error) {
       console.error(error);
-      state.needsInitialPush = true;
-      setSyncStatus('error');
-      scheduleSyncRetry();
-      if (state.syncRetryCount <= 1) {
-        toast('A alteração já está protegida e cifrada neste dispositivo. O Keyron tentará confirmar no Drive novamente.', 'warning', 5200);
+      if (error?.code === 'DRIVE_CONFLICT') {
+        const handled = await handleDriveConflict(state.bundle);
+        state.needsInitialPush = !handled;
+        if (!handled) {
+          setSyncStatus('error');
+          scheduleSyncRetry();
+        }
+      } else {
+        state.needsInitialPush = true;
+        setSyncStatus('error');
+        scheduleSyncRetry();
+        if (state.syncRetryCount <= 1) {
+          toast('A alteração já está protegida e cifrada neste dispositivo. O Keyron tentará confirmar no Drive novamente.', 'warning', 5200);
+        }
       }
     } finally {
       state.syncInFlight = false;
@@ -1778,9 +2014,12 @@
   async function prepareImport(file) {
     if (!file) return;
     try {
+      const maxBytes = Number(KeyronConfig.MAX_BUNDLE_BYTES || 67108864);
+      if (file.size > maxBytes) throw new Error('BUNDLE_TOO_LARGE');
       const text = await file.text();
+      if (text.length > maxBytes) throw new Error('BUNDLE_TOO_LARGE');
       const candidate = JSON.parse(text);
-      if (!KeyronCrypto.looksLikeEncryptedBundle(candidate)) throw new Error('INVALID_BUNDLE');
+      KeyronCrypto.assertValidBundle(candidate);
       const confirmed = await askConfirm({ title: 'Importar backup', message: 'O Keyron vai verificar a senha deste backup antes de substituir o cofre atual. Continuar?', confirmLabel: 'Continuar', kind: 'primary', kicker: 'BACKUP CIFRADO' });
       if (!confirmed) return;
       state.pendingImportBundle = candidate;
@@ -1801,15 +2040,37 @@
   async function verifyAndCommitImport(password) {
     setBusy(true, 'Verificando o backup…', 'Nada será substituído antes da senha ser confirmada.');
     try {
-      const result = await KeyronCrypto.unlockBundle(password, state.pendingImportBundle);
-      let vault = KeyronVault.normalize(result.vault);
-      let bundle = state.pendingImportBundle;
+      const sourceBundle = state.pendingImportBundle;
+      const result = await KeyronCrypto.unlockBundle(password, sourceBundle);
+      const vault = KeyronVault.normalize(result.vault);
+      const ownerAccountId = googleAccountIdentifier();
+      const expectedBinding = ownerAccountId ? await KeyronCrypto.hashAccountIdentifier(ownerAccountId) : null;
+      let bundle = sourceBundle;
       let key = result.key;
-      if (result.legacy || !bundle.wrappedKey || Number(result.vault?.version || 1) < 3 || result.iterations < KeyronCrypto.CURRENT_ITERATIONS) {
-        const migrated = await KeyronCrypto.rekeyBundle(password, vault, vault.id);
+
+      if (result.legacy || !bundle.wrappedKey) {
+        const migrated = await KeyronCrypto.rekeyBundle(password, vault, vault.id, {
+          ownerAccountId,
+          deviceId: KeyronSaveEngine.deviceId,
+          saveReason: 'vault-import-migration'
+        });
         bundle = migrated.bundle;
         key = migrated.key;
         if (migrated.recoveryCode) state.pendingRecoveryReveal = migrated.recoveryCode;
+      } else if (Number(bundle.formatVersion || 0) < KeyronCrypto.FORMAT_VERSION ||
+          !result.metadataProtected ||
+          result.iterations < KeyronCrypto.CURRENT_ITERATIONS ||
+          bundle.ownerBinding !== expectedBinding) {
+        bundle = result.iterations < KeyronCrypto.CURRENT_ITERATIONS
+          ? await KeyronCrypto.changePassword(key, password, bundle, {
+              ownerAccountId,
+              deviceId: KeyronSaveEngine.deviceId,
+              saveReason: 'vault-import-upgrade'
+            })
+          : await KeyronCrypto.rebindOwner(key, bundle, vault, ownerAccountId, {
+              deviceId: KeyronSaveEngine.deviceId,
+              saveReason: 'vault-import-rebind'
+            });
       }
 
       await KeyronStorage.saveRecovery(state.preImportBundle).catch(() => null);
@@ -1828,16 +2089,17 @@
         await KeyronSaveEngine.confirmRemote(state.bundle);
         state.needsInitialPush = false;
         setSyncStatus('synced');
-        toast('Backup verificado, importado e confirmado no Drive.', 'success', 5000);
+        toast('Backup verificado, vinculado a esta conta e confirmado no Drive.', 'success', 5000);
       } catch (driveError) {
         console.error(driveError);
+        if (driveError?.code === 'DRIVE_CONFLICT' && await handleDriveConflict(state.bundle)) return;
         setSyncStatus('error');
         scheduleSyncRetry();
         toast('Backup verificado e importado neste dispositivo. O Drive será atualizado novamente assim que responder.', 'warning', 6000);
       }
     } catch (error) {
       console.error(error);
-      el.masterError.textContent = 'A senha não abriu este backup. O cofre atual não foi substituído.';
+      el.masterError.textContent = 'A senha não abriu este backup ou o arquivo não passou na verificação de integridade.';
     } finally {
       el.masterPassword.value = '';
       setBusy(false);
@@ -1922,8 +2184,12 @@
   async function handleCsvFile(file) {
     if (!file) return;
     try {
+      const maxBytes = Number(KeyronConfig.MAX_CSV_BYTES || 8388608);
+      if (file.size > maxBytes) throw new Error('CSV_TOO_LARGE');
       const text = await file.text();
       const rows = parseCsv(text);
+      const maxRows = Math.min(Number(KeyronConfig.MAX_CSV_ROWS || 10000), Math.max(0, 10000 - Number(state.vault?.entries?.length || 0)));
+      if (rows.length > maxRows) throw new Error('CSV_TOO_MANY_ROWS');
       if (!rows.length) {
         toast('Não encontrei linhas válidas nesse CSV. Confira o cabeçalho esperado.', 'error', 5000);
         return;
@@ -1948,7 +2214,13 @@
       el.importReviewDialog.showModal();
     } catch (error) {
       console.error(error);
-      toast('Não foi possível ler esse arquivo CSV.', 'error');
+      if (error?.message === 'CSV_TOO_LARGE') {
+        toast('Esse CSV é grande demais. O limite é 8 MB.', 'error', 5000);
+      } else if (error?.message === 'CSV_TOO_MANY_ROWS') {
+        toast('Esse CSV ultrapassa o limite seguro de 10.000 credenciais do cofre.', 'error', 5500);
+      } else {
+        toast('Não foi possível ler esse arquivo CSV.', 'error');
+      }
     } finally {
       el.csvImportInput.value = '';
     }
@@ -2065,15 +2337,12 @@
     }
     try {
       await navigator.clipboard.writeText(value);
+      state.clipboardValue = value;
       toast(`${label} copiado.`, 'success');
       clearTimeout(state.clipboardTimer);
       const seconds = Math.max(5, Number(state.vault.preferences?.clipboardClearSeconds || 20));
-      state.clipboardTimer = setTimeout(async () => {
-        try {
-          if (!document.hasFocus()) return;
-          const current = await navigator.clipboard.readText();
-          if (current === value) await navigator.clipboard.writeText('');
-        } catch { /* O navegador pode negar leitura da área de transferência. */ }
+      state.clipboardTimer = setTimeout(() => {
+        clearOwnedClipboard().catch(() => null);
       }, seconds * 1000);
     } catch {
       toast('O navegador bloqueou o acesso à área de transferência.', 'error');
@@ -2105,11 +2374,21 @@
     el.passwordStrength.dataset.level = score >= 72 ? 'strong' : score >= 44 ? 'medium' : 'weak';
   }
 
+  async function hasValidImageSignature(file) {
+    const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const png = bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value);
+    const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const webp = bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
+      String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP';
+    return (file.type === 'image/png' && png) || (file.type === 'image/jpeg' && jpeg) || (file.type === 'image/webp' && webp);
+  }
+
   async function processLogoFile(file) {
     if (!file) return null;
     const allowed = new Set(['image/png', 'image/jpeg', 'image/webp']);
     if (!allowed.has(file.type)) throw new Error('UNSUPPORTED_IMAGE');
     if (file.size > Number(KeyronConfig.MAX_LOGO_BYTES || 4194304)) throw new Error('IMAGE_TOO_LARGE');
+    if (!(await hasValidImageSignature(file))) throw new Error('INVALID_IMAGE_SIGNATURE');
 
     const objectUrl = URL.createObjectURL(file);
     try {
@@ -2117,8 +2396,15 @@
       image.decoding = 'async';
       image.src = objectUrl;
       await image.decode();
+      const sourceWidth = Number(image.naturalWidth || 0);
+      const sourceHeight = Number(image.naturalHeight || 0);
+      const maxSide = Number(KeyronConfig.MAX_LOGO_SIDE || 8192);
+      const maxPixels = Number(KeyronConfig.MAX_LOGO_PIXELS || 25165824);
+      if (!sourceWidth || !sourceHeight || sourceWidth > maxSide || sourceHeight > maxSide || sourceWidth * sourceHeight > maxPixels) {
+        throw new Error('IMAGE_DIMENSIONS_TOO_LARGE');
+      }
       const max = 512;
-      const scale = Math.min(1, max / Math.max(image.naturalWidth, image.naturalHeight));
+      const scale = Math.min(1, max / Math.max(sourceWidth, sourceHeight));
       const width = Math.max(1, Math.round(image.naturalWidth * scale));
       const height = Math.max(1, Math.round(image.naturalHeight * scale));
       const canvas = document.createElement('canvas');
@@ -2463,7 +2749,11 @@
         renderLogoPreview();
         toast(`Logo preparada com ${formatBytes(state.pendingLogo.bytes)}.`, 'success');
       } catch (error) {
-        const message = error.message === 'IMAGE_TOO_LARGE' ? 'A imagem pode ter no máximo 4 MB.' : 'Use uma imagem PNG, JPG ou WebP válida.';
+        const message = error.message === 'IMAGE_TOO_LARGE'
+          ? 'A imagem pode ter no máximo 4 MB.'
+          : error.message === 'IMAGE_DIMENSIONS_TOO_LARGE'
+            ? 'A imagem tem dimensões grandes demais para ser processada com segurança.'
+            : 'Use uma imagem PNG, JPG ou WebP válida.';
         toast(message, 'error');
       } finally {
         el.logoInput.value = '';
@@ -2524,9 +2814,30 @@
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) return;
+      clearTimeout(state.hiddenLockTimer);
+      const seconds = Math.max(5, Number(KeyronConfig.HIDDEN_LOCK_SECONDS || 30));
+      if (!document.hidden) {
+        const hiddenFor = state.hiddenAt ? Date.now() - state.hiddenAt : 0;
+        state.hiddenAt = 0;
+        // Navegadores podem suspender timers em segundo plano. Ao retornar, o tempo
+        // real oculto é conferido antes de permitir que o cofre continue aberto.
+        if (state.key && hiddenFor >= seconds * 1000) {
+          lockVault().catch(() => null);
+          return;
+        }
+        if (state.key) resetAutoLockTimer();
+        return;
+      }
+      state.hiddenAt = Date.now();
       KeyronSaveEngine.flush(900).catch(() => null);
       if (state.needsInitialPush) syncToDrive();
+      if (state.key) {
+        state.hiddenLockTimer = setTimeout(() => {
+          if (document.hidden && state.key) {
+            lockVault().catch(() => null);
+          }
+        }, seconds * 1000);
+      }
     });
 
     window.addEventListener('online', () => {
@@ -2535,8 +2846,25 @@
     window.addEventListener('offline', () => {
       if (state.needsInitialPush) setSyncStatus('offline');
     });
-    window.addEventListener('pagehide', () => {
+    window.addEventListener('pagehide', (event) => {
       KeyronSaveEngine.flush(700).catch(() => null);
+      // Páginas colocadas no BFCache podem manter a memória JavaScript viva. A chave
+      // e o conteúdo legível são descartados imediatamente antes do congelamento.
+      if (event.persisted && state.key) {
+        clearTimeout(state.autoLockTimer);
+        clearTimeout(state.clipboardTimer);
+        clearTimeout(state.hiddenLockTimer);
+        state.key = null;
+        state.vault = null;
+        scrubSensitiveUi();
+        closeAllDialogs();
+        if (state.googleVerified && KeyronDrive.isConnected()) {
+          configureMasterStep('unlock');
+          showMasterStep();
+        } else {
+          showGoogleStep();
+        }
+      }
     });
     let boardResizeTimer = null;
     window.addEventListener('resize', () => {
@@ -2554,10 +2882,27 @@
     setPasswordVisibility(el.cpCurrent, el.cpToggleCurrent, false);
     setPasswordVisibility(el.cpNew, el.cpToggleNew, false);
     setPasswordVisibility(el.cpConfirm, el.cpToggleConfirm, false);
-    const stored = await KeyronStorage.loadCurrent();
-    const pending = await KeyronSaveEngine.loadPendingBundle();
-    state.bundle = pending && parseTime(pending) >= parseTime(stored) ? pending : stored;
-    if (pending && state.bundle === pending) {
+    const stored = safeEncryptedBundle(await KeyronStorage.loadCurrent());
+    const pending = safeEncryptedBundle(await KeyronSaveEngine.loadPendingBundle());
+    let usePending = Boolean(pending && !stored);
+    if (pending && stored) {
+      const sameVault = String(pending.vaultId || '') === String(stored.vaultId || '');
+      const compatibleOwner = !pending.ownerBinding || !stored.ownerBinding || pending.ownerBinding === stored.ownerBinding;
+      const pendingVersion = Number(pending.formatVersion || 0);
+      const storedVersion = Number(stored.formatVersion || 0);
+      if (sameVault && compatibleOwner && pendingVersion >= 4 && storedVersion >= 4) {
+        usePending = pending.operationId === stored.operationId ||
+          (Array.isArray(pending.ancestors) && pending.ancestors.includes(stored.operationId));
+      } else if (sameVault && compatibleOwner && pendingVersion < 4 && storedVersion < 4) {
+        usePending = Number(pending.revision || 0) > Number(stored.revision || 0) ||
+          (Number(pending.revision || 0) === Number(stored.revision || 0) && parseTime(pending) >= parseTime(stored));
+      }
+      if (!usePending && pending.operationId !== stored.operationId) {
+        await KeyronStorage.saveRecovery(pending).catch(() => null);
+      }
+    }
+    state.bundle = usePending ? pending : stored;
+    if (usePending) {
       await KeyronStorage.saveCurrent(pending).catch(() => null);
       state.needsInitialPush = true;
     }

@@ -8,14 +8,15 @@
   <meta name="theme-color" content="#070b12" />
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=0.6.3" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests" />
+  <link rel="manifest" href="manifest.json?v=1.0.0" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <link rel="stylesheet" href="css/style.css?v=0.6.3" />
+  <script src="js/frame-guard.js?v=1.0.0"></script>
+  <link rel="stylesheet" href="css/style.css?v=1.0.0" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -47,13 +48,13 @@
         <form id="master-form" autocomplete="off" novalidate>
           <label class="field-label master-only-label visually-hidden" for="master-password">Senha mestra</label>
           <div class="secret-field">
-            <input type="password" id="master-password" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Digite sua senha mestra" required />
+            <input type="password" id="master-password" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Digite sua senha mestra" required />
             <button type="button" id="toggle-master" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button>
           </div>
 
           <div id="master-confirm-group" hidden>
             <label class="field-label" for="master-password-confirm">Confirmar senha mestra</label>
-            <input type="password" id="master-password-confirm" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <input type="password" id="master-password-confirm" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" />
           </div>
 
           <div id="master-strength-wrap" class="master-strength" hidden>
@@ -73,17 +74,17 @@
         <h1 class="visually-hidden">Recuperar acesso ao Keyron</h1>
         <form id="recovery-form" autocomplete="off" novalidate>
           <label class="field-label" for="recovery-code-input">Chave de recuperação</label>
-          <input type="text" id="recovery-code-input" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />
+          <input type="text" id="recovery-code-input" maxlength="35" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />
 
           <div id="recovery-newpass-group" hidden>
             <label class="field-label" for="recovery-new-password">Nova senha mestra</label>
             <div class="secret-field">
-              <input type="password" id="recovery-new-password" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" />
+              <input type="password" id="recovery-new-password" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" />
               <button type="button" id="recovery-toggle-new" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button>
             </div>
             <div id="recovery-strength-wrap" class="master-strength"><div class="strength-track"><div id="recovery-strength-bar" class="strength-bar"></div></div><span id="recovery-strength-label">Use uma frase longa e exclusiva.</span></div>
             <label class="field-label" for="recovery-new-password-confirm">Confirmar nova senha mestra</label>
-            <input type="password" id="recovery-new-password-confirm" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <input type="password" id="recovery-new-password-confirm" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" />
           </div>
 
           <p id="recovery-error" class="field-error" role="alert"></p>
@@ -92,7 +93,7 @@
         <button type="button" id="recovery-back-btn" class="text-button">Voltar para senha mestra</button>
       </div>
     </section>
-    <span id="access-version" class="version-pill version-pill--fixed">v0.6.3</span>
+    <span id="access-version" class="version-pill version-pill--fixed">v1.0.0</span>
   </main>
 
   <section id="app-screen" class="app-screen" hidden>
@@ -103,7 +104,7 @@
 
       <label class="search-box" for="search-input">
         <span aria-hidden="true">⌕</span>
-        <input type="search" id="search-input" placeholder="Buscar credencial, usuário, site ou categoria…" autocomplete="off" />
+        <input type="search" id="search-input" maxlength="200" placeholder="Buscar credencial, usuário, site ou categoria…" autocomplete="off" />
         <kbd>/</kbd>
       </label>
 
@@ -271,7 +272,7 @@
             <div class="settings-card-head"><div><span class="card-eyebrow">DESBLOQUEIO</span><h3>Biometria neste dispositivo</h3></div><span class="status-badge">LOCAL</span></div>
             <p>Use digital, rosto ou PIN do sistema. A biometria fica protegida só neste aparelho e nunca sincroniza com o Drive.</p>
             <div id="biometric-enable-row" class="button-row" hidden>
-              <input type="password" id="biometric-confirm-password" placeholder="Confirme sua senha mestra" autocomplete="off" autocapitalize="none" spellcheck="false" />
+              <input type="password" id="biometric-confirm-password" maxlength="2048" placeholder="Confirme sua senha mestra" autocomplete="off" autocapitalize="none" spellcheck="false" />
               <button type="button" id="biometric-enable-btn" class="btn btn--ghost">Ativar biometria</button>
             </div>
             <p id="biometric-enable-error" class="field-error"></p>
@@ -308,15 +309,15 @@
 
           <div class="settings-card">
             <div class="settings-card-head"><div><span class="card-eyebrow">RECIFRAGEM</span><h3>Trocar senha mestra</h3></div></div>
-            <p>Trocar a senha recifra o cofre inteiro com uma nova chave. A biometria deste dispositivo será desligada e precisará ser ativada novamente.</p>
+            <p>Trocar a senha recifra o conteúdo e protege a chave do cofre com a nova senha. A biometria deste dispositivo será desligada e precisará ser ativada novamente.</p><p class="fine-print"><b>Importante:</b> backups antigos continuam protegidos pela senha e pela chave de recuperação válidas quando foram criados. Se a troca ocorrer por suspeita de vazamento, apague também cópias antigas exportadas e troque as credenciais das contas afetadas.</p>
             <form id="change-password-form" autocomplete="off" novalidate>
               <label class="field-label" for="cp-current">Senha mestra atual</label>
-              <div class="secret-field"><input type="password" id="cp-current" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Senha atual" /><button type="button" id="cp-toggle-current" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
+              <div class="secret-field"><input type="password" id="cp-current" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Senha atual" /><button type="button" id="cp-toggle-current" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
               <label class="field-label" for="cp-new">Nova senha mestra</label>
-              <div class="secret-field"><input type="password" id="cp-new" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Nova senha" /><button type="button" id="cp-toggle-new" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
+              <div class="secret-field"><input type="password" id="cp-new" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Nova senha" /><button type="button" id="cp-toggle-new" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
               <div id="cp-strength-wrap" class="master-strength"><div class="strength-track"><div id="cp-strength-bar" class="strength-bar"></div></div><span id="cp-strength-label">Use uma frase longa e exclusiva.</span></div>
               <label class="field-label" for="cp-confirm">Confirmar nova senha</label>
-              <div class="secret-field"><input type="password" id="cp-confirm" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Repita a nova senha" /><button type="button" id="cp-toggle-confirm" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
+              <div class="secret-field"><input type="password" id="cp-confirm" minlength="12" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Repita a nova senha" /><button type="button" id="cp-toggle-confirm" class="field-icon-btn" aria-label="Mostrar senha"><span class="eye-icon" aria-hidden="true"></span></button></div>
               <p id="cp-error" class="field-error"></p>
               <button type="submit" id="cp-submit" class="btn btn--primary">Trocar senha mestra</button>
             </form>
@@ -363,7 +364,7 @@
         <section class="settings-panel" data-settings-panel="about">
           <div class="about-keyron">
             <img src="assets/keyron-wordmark.png" alt="Keyron" />
-            <span class="version-pill">v0.6.3</span>
+            <span class="version-pill">v1.0.0</span>
           </div>
           <div class="settings-card settings-card--story"><span class="dialog-kicker">POR QUE O KEYRON FOI CRIADO</span><h3>Da planilha EVA para um cofre de verdade</h3><p>O Keyron nasceu porque organizar senhas em uma planilha chamada EVA já não combinava com a importância daqueles dados. A planilha era prática, mas continuava sendo um arquivo em texto legível, difícil de usar no celular e sem uma camada de proteção criada especificamente para credenciais.</p><p>A ideia foi transformar a mesma lógica visual de organização — categorias e “gavetas” — em um aplicativo próprio, rápido e agradável, mas com criptografia antes do salvamento, biometria, sincronização pelo Drive do usuário e controle total sobre cada acesso.</p><p>O nome Keyron une a ideia de <b>key</b>, a chave que abre apenas o que pertence a você, com uma identidade tecnológica independente. Ele foi criado para que segurança não pareça uma planilha improvisada nem um sistema distante: deve ser um cofre pessoal que você entende e consegue organizar do seu jeito.</p></div>
           <div class="privacy-grid"><article class="settings-card"><span>01</span><h3>Controle</h3><p>Suas gavetas, sua ordem e seu Drive.</p></article><article class="settings-card"><span>02</span><h3>Clareza</h3><p>Uma interface visual para encontrar acessos rápido.</p></article><article class="settings-card"><span>03</span><h3>Proteção</h3><p>Criptografia local sem mecanismo fraco de recuperação.</p></article></div>
@@ -431,16 +432,16 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=0.6.3"></script>
-  <script src="js/crypto.js?v=0.6.3"></script>
-  <script src="js/storage.js?v=0.6.3"></script>
-  <script src="js/save-engine.js?v=0.6.3"></script>
-  <script src="js/vault.js?v=0.6.3"></script>
-  <script src="js/generator.js?v=0.6.3"></script>
-  <script src="js/breach-check.js?v=0.6.3"></script>
-  <script src="js/drive.js?v=0.6.3"></script>
-  <script src="js/biometric.js?v=0.6.3"></script>
+  <script src="js/config.js?v=1.0.0"></script>
+  <script src="js/crypto.js?v=1.0.0"></script>
+  <script src="js/storage.js?v=1.0.0"></script>
+  <script src="js/save-engine.js?v=1.0.0"></script>
+  <script src="js/vault.js?v=1.0.0"></script>
+  <script src="js/generator.js?v=1.0.0"></script>
+  <script src="js/breach-check.js?v=1.0.0"></script>
+  <script src="js/drive.js?v=1.0.0"></script>
+  <script src="js/biometric.js?v=1.0.0"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=0.6.3"></script>
+  <script src="js/app.js?v=1.0.0"></script>
 </body>
 </html>

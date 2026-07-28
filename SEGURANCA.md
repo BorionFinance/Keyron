@@ -1,68 +1,79 @@
-# Segurança — Keyron v0.6.3
+# Segurança — Keyron v1.0.0
 
-## Modelo do cofre
+## Modelo de ameaça
 
-O Keyron é um cofre zero-knowledge no sentido de que o conteúdo legível é cifrado localmente antes da sincronização. O Google Drive funciona como transporte e armazenamento do bundle cifrado.
+O Keyron foi endurecido para proteger o cofre contra leitura do arquivo no Drive, cópia do armazenamento local, senha mestra incorreta, adulteração de bundle, troca de metadados, rollback parcial de envelopes, importação malformada, XSS por dados do cofre e sobrescrita concorrente entre dispositivos.
 
-### Criptografia
+Ele não promete proteger contra malware com acesso ao aparelho, keylogger, extensão maliciosa autorizada a ler a página, navegador comprometido, domínio de hospedagem comprometido ou invasor que obtenha simultaneamente o arquivo cifrado e a senha mestra/chave de recuperação.
+
+## Criptografia do formato v4
 
 - Cifra: AES-GCM de 256 bits.
-- Tag de autenticação: 128 bits.
+- Tag GCM: 128 bits.
 - KDF: PBKDF2-HMAC-SHA-256.
-- Iterações: 600.000.
-- Salt aleatório: 16 bytes.
-- IV aleatório: 12 bytes por cifragem.
-- AAD: contexto e identificador do cofre.
+- Iterações atuais: 600.000.
+- Faixa aceita defensivamente: 600.000 a 2.000.000.
+- Salt: 16 bytes aleatórios por envelope.
+- IV: 12 bytes aleatórios por cifragem.
+- Chave de dados: 32 bytes aleatórios.
+- Recuperação: 30 caracteres escolhidos com rejection sampling, sem viés de módulo.
 
-### Chave de dados (v0.5.0)
+A senha mestra deriva uma chave de embrulho; ela não cifra diretamente todo o cofre. A mesma chave de dados é embrulhada separadamente pela senha mestra e pela chave de recuperação.
 
-O cofre é cifrado com uma chave de dados (DEK) de 256 bits, gerada aleatoriamente e independente de qualquer senha. Essa DEK é "embrulhada" (cifrada) duas vezes, separadamente:
+## Selo de integridade
 
-1. Por uma chave derivada da senha mestra (PBKDF2, salt e iterações próprios).
-2. Por uma chave derivada da chave de recuperação (PBKDF2, salt e iterações próprios).
+O formato v4 autentica, com a própria chave de dados:
 
-Nenhum dos dois embrulhos decifra o outro — cada um só devolve a mesma DEK a partir do seu próprio segredo. Trocar a senha mestra re-embrulha apenas o primeiro (a DEK e o conteúdo cifrado não mudam), e por isso a chave de recuperação continua válida depois da troca.
+- hash do ciphertext do conteúdo;
+- KDF e embrulho da senha mestra;
+- KDF e embrulho da recuperação;
+- verificador do cofre e parâmetros da cifra;
+- conta Google proprietária;
+- revisão, operação, dispositivo, motivo e horário de salvamento;
+- linhagem recente de operações.
+
+Isso bloqueia alterações isoladas, mistura de partes de bundles, recolocação de um embrulho antigo dentro de uma versão nova e falsificação de revisão/linhagem. Um rollback do arquivo inteiro para uma cópia histórica ainda válida não pode ser provado em um dispositivo totalmente novo sem uma fonte monotônica externa confiável; em dispositivos que possuem uma versão mais nova, a linhagem permite detectar divergência e impedir sobrescrita automática.
+
+## Conta Google e Drive
+
+O vínculo usa o `permissionId` retornado pela API do Drive. O Client ID OAuth do frontend é público por definição; ele não é segredo. O token de acesso fica apenas em memória.
+
+O escopo é exatamente `https://www.googleapis.com/auth/drive.file`, limitando o aplicativo aos arquivos criados ou abertos por ele. Atualizações do arquivo principal exigem ETag e `If-Match`; se o ETag não estiver disponível, o Keyron falha fechado e não envia a sobrescrita.
+
+Conflitos preservam a cópia local cifrada, tentam criar um snapshot de conflito no Drive e exigem novo desbloqueio da versão remota escolhida.
+
+## Armazenamento local e bloqueio
+
+- IndexedDB e fallback local recebem somente bundles cifrados.
+- O WAL é cifrado antes de ser marcado como pendente.
+- Um fallback antigo é removido quando o IndexedDB passa a ser a fonte válida, evitando ressurreição após limpeza.
+- WAL divergente não é descartado apenas por número de revisão; exige mesma operação ou descendência autenticada.
+- O bloqueio descarta imediatamente chave e cofre legível antes de esperar por rede ou IndexedDB.
+- Aba oculta por 30 segundos bloqueia o cofre, inclusive quando o navegador suspende timers.
+- Entrada em BFCache descarta o estado legível de forma síncrona.
+- Limpeza da área de transferência é best-effort porque o navegador pode negar permissão de leitura.
 
 ## Biometria
 
-Quando disponível, o Keyron usa WebAuthn/PRF para proteger localmente o material necessário ao desbloqueio biométrico. Esse registro:
+A biometria usa WebAuthn com autenticador de plataforma, `userVerification: required` e extensão PRF. O segredo local é cifrado por AES-GCM com AAD vinculando schema, cofre e credencial WebAuthn. O registro não é sincronizado com o Drive.
 
-- pertence somente ao dispositivo e navegador atual;
-- não é enviado ao Google Drive;
-- pode ser apagado nas Configurações;
-- não substitui a criptografia do arquivo.
+A verificação do sistema pode ser satisfeita por digital, rosto ou PIN do dispositivo, conforme as regras do sistema operacional. Ela não substitui a criptografia do arquivo.
 
-No mobile, a tentativa biométrica vem primeiro. A senha mestra aparece como fallback se a biometria falhar, for cancelada ou estiver indisponível.
+## Entrada e conteúdo ativo
 
-## Senhas vazadas
+- CSP restringe scripts ao próprio domínio e ao Google Identity Services.
+- Não há `eval`, `new Function`, handlers inline nem dados do usuário inseridos em `innerHTML`.
+- URLs externas aceitam somente HTTP e HTTPS e abrem com `noopener,noreferrer`.
+- Logos aceitam somente PNG, JPEG e WebP, validam assinatura binária, tamanho, dimensões e pixels, e são recodificadas em canvas.
+- SVG não entra no cofre como logo.
+- Backups, CSVs, campos e respostas externas possuem limites defensivos.
+- O Service Worker não devolve HTML no lugar de JavaScript/CSS e só armazena recursos conhecidos da shell.
 
-A consulta usa o endpoint Pwned Passwords por prefixo:
+## Riscos residuais
 
-1. O SHA-1 da senha é calculado localmente.
-2. Apenas os 5 primeiros caracteres do hash são enviados.
-3. O serviço devolve vários sufixos possíveis, com padding.
-4. O navegador compara o sufixo completo localmente.
-5. O Keyron salva somente o resultado por credencial e a data, dentro do cofre cifrado.
-
-O SHA-1 não é usado para cifrar nem armazenar senhas. Ele é usado exclusivamente porque faz parte do protocolo de k-anonymity dessa base.
-
-## Recuperação e ausência de porta dos fundos
-
-Não existe recuperação por CPF, CEP, telefone, nome da mãe, perguntas secretas ou simples confirmação por e-mail. Esses mecanismos reduziriam a segurança e permitiriam ataques com dados pessoais vazados.
-
-Em vez disso, o Keyron gera uma chave de recuperação aleatória de alta entropia (30 caracteres, ≈150 bits) na criação do cofre — ou na migração de um cofre anterior — e mostra-a uma única vez para o usuário guardar fora do aparelho. Essa chave consegue destravar a DEK e permitir a definição de uma nova senha mestra, exatamente como a senha faria, sem nenhum atalho baseado em dados pessoais. O Keyron nunca guarda uma cópia legível dela: só o embrulho cifrado da DEK.
-
-Sem a senha mestra e sem essa chave de recuperação, o cofre deve permanecer inacessível. Essa limitação é uma propriedade de segurança, não um erro.
-
-## Dados que o Google ainda pode ver
-
-O Google pode ver metadados do arquivo, como nome, tamanho e datas. O conteúdo interno — credenciais, ordem das gavetas, notas, logos, preferências e auditorias — permanece cifrado.
-
-## Recomendações
-
-- Use uma frase mestra longa, exclusiva e não reutilizada.
-- Guarde a chave de recuperação exibida na criação do cofre em um local seguro e diferente deste aparelho.
-- Ative biometria apenas em dispositivos confiáveis.
-- Exporte backups `.keyron` periodicamente.
-- Apague CSVs em texto puro após importá-los.
-- Troque imediatamente qualquer senha sinalizada pela verificação de vazamentos.
+1. Senha mestra fraca permite ataque offline ao bundle roubado; use uma frase longa e exclusiva.
+2. Backups históricos continuam abrindo com as credenciais válidas na data em que foram criados.
+3. Um dispositivo novo, sem estado anterior, não consegue distinguir uma cópia histórica inteira válida da versão mais recente sem consultar uma referência externa confiável.
+4. Google Identity Services é um script remoto confiado pela aplicação; comprometimento do fornecedor ou da hospedagem está fora do alcance do código local.
+5. Extensões, malware, keyloggers e ferramentas com acesso à memória da página podem ler dados enquanto o cofre está desbloqueado.
+6. WebAuthn/PRF, OAuth, Drive e Pwned Passwords precisam ser confirmados ao vivo no domínio final.

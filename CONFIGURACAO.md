@@ -1,47 +1,58 @@
-# Configuração do Keyron v0.6.3
+# Configuração do Keyron v1.0.0
 
 ## 1. Google OAuth
 
-Edite `js/config.js` e informe o Client ID do aplicativo Web criado no Google Cloud:
+O Client ID em `js/config.js` deve ser de um aplicativo OAuth do tipo Web. Esse identificador é público e precisa existir no frontend; nunca coloque `client_secret`, chave privada ou token fixo no projeto.
 
-```js
-window.KeyronConfig = {
-  GOOGLE_CLIENT_ID: 'SEU_CLIENT_ID.apps.googleusercontent.com',
-  MAX_LOGO_BYTES: 4194304
-};
+Cadastre, nas origens JavaScript autorizadas, o endereço HTTPS exato em que o Keyron será publicado, incluindo protocolo e porta quando houver. Exemplo:
+
+```text
+https://keyron.exemplo.com.br
 ```
 
-No Google Cloud, cadastre exatamente os domínios HTTPS em que o Keyron será aberto em **Origens JavaScript autorizadas**. Para produção, use o domínio final do Keyron.
+O aplicativo solicita somente:
 
-O Keyron solicita apenas:
+```text
+https://www.googleapis.com/auth/drive.file
+```
 
-- `https://www.googleapis.com/auth/drive.file`, para acessar somente arquivos criados ou abertos pelo próprio aplicativo. O nome e e-mail da conta conectada (mostrados durante a verificação) vêm do próprio recurso `about` da API do Drive — não é preciso pedir os escopos `openid`/`email`/`profile` separadamente, o que evitava telas extras de consentimento e exigia mais de um clique para autenticar.
+A conta é vinculada pelo `permissionId` estável retornado pela API do Drive. Nome e e-mail são usados apenas para identificação visual.
 
-No acesso normal, o aplicativo não força `select_account`. O seletor completo de conta é usado somente quando o usuário pede para trocar de conta ou sai da conta atual.
+## 2. HTTPS e cabeçalhos
 
-## 2. HTTPS obrigatório
+Publique exclusivamente em HTTPS. WebAuthn, Service Worker, PWA e área de transferência exigem contexto seguro.
 
-Publique em HTTPS. Biometria/WebAuthn, Service Worker, PWA, área de transferência e vários recursos de segurança exigem contexto seguro.
+O HTML possui CSP e o Service Worker adiciona cabeçalhos defensivos nas respostas que controla. Na primeira visita, antes de o Service Worker assumir a página, os cabeçalhos precisam vir do servidor/CDN sempre que a hospedagem permitir. Priorize:
 
-## 3. Verificação de senhas vazadas
+```text
+Content-Security-Policy: default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Cross-Origin-Opener-Policy: same-origin-allow-popups
+Cross-Origin-Resource-Policy: same-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), publickey-credentials-create=(self), publickey-credentials-get=(self)
+```
 
-A Content Security Policy já permite conexão somente com:
+`same-origin-allow-popups` é necessário para não quebrar o fluxo OAuth em popup.
 
-- APIs do Google necessárias ao Drive e OAuth;
-- `https://api.pwnedpasswords.com`, usado pela consulta k-anonymity.
+## 3. Limites configuráveis
 
-A verificação semanal acontece ao abrir e desbloquear o Keyron quando:
+`js/config.js` define limites de logo, bundle, CSV, quantidade de backups, bloqueio em segundo plano e intervalo de snapshots. Aumentar esses valores amplia consumo de memória e superfície de negação de serviço; reduzi-los pode impedir a abertura de cofres legítimos grandes.
 
-- a opção está ativada nas Configurações;
-- já passaram 7 dias desde a última verificação;
-- existe conexão com a internet.
+## 4. Atualização para v1.0.0
 
-Não há tarefa em servidor nem verificação com o cofre bloqueado. O aplicativo precisa estar aberto e desbloqueado para calcular os hashes localmente.
+Substitua todos os arquivos publicados juntos. O cache do PWA usa `keyron-shell-v1.0.0` e remove caches antigos na ativação.
 
-## 4. Atualização da 0.3.9
+Cofres legados compatíveis são migrados após um desbloqueio válido. A migração cria o formato v4, adiciona o selo de integridade e vincula o cofre à conta Google verificada. Antes do primeiro deploy, mantenha uma cópia cifrada do `.keyron` atual fora da pasta publicada.
 
-Substitua os arquivos publicados pelos arquivos da 0.6.3. O Service Worker usa um cache novo e remove o cache antigo na ativação.
+## 5. Checklist após publicar
 
-Ao desbloquear um cofre antigo, a migração para o schema 3 é automática. Ela adiciona a ordem interna das credenciais e a estrutura de auditoria sem alterar senhas, notas, logos ou categorias.
-
-Antes de atualizar produção, mantenha uma cópia do arquivo `.keyron` atual.
+- Confirmar que o Google abre uma única seleção de conta.
+- Confirmar que a conta exibida é a correta.
+- Criar uma credencial de teste, fechar a aba e reabrir em outro dispositivo.
+- Testar senha errada, senha correta e chave de recuperação.
+- Testar biometria em um dispositivo compatível.
+- Testar conflito real com dois dispositivos sem sobrescrever dados.
+- Confirmar no DevTools que `vault.keyron` não contém nomes, usuários ou senhas legíveis.
+- Confirmar que o domínio entrega os cabeçalhos de segurança também na primeira navegação.

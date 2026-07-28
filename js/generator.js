@@ -1,4 +1,5 @@
 const KeyronGenerator = (() => {
+  'use strict';
   const LOWER = 'abcdefghijkmnopqrstuvwxyz';
   const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const DIGITS = '23456789';

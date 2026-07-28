@@ -4,6 +4,7 @@ const KeyronBreachCheck = (() => {
   'use strict';
 
   const API = 'https://api.pwnedpasswords.com/range/';
+  const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
   const encoder = new TextEncoder();
 
   function bytesToHex(bytes) {
@@ -29,15 +30,27 @@ const KeyronBreachCheck = (() => {
   }
 
   async function fetchPrefix(prefix) {
-    const response = await fetch(`${API}${encodeURIComponent(prefix)}`, {
-      method: 'GET',
-      headers: { 'Add-Padding': 'true' },
-      cache: 'no-store',
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer'
-    });
-    if (!response.ok) throw new Error(`HIBP_${response.status}`);
-    return parseRange(await response.text());
+    if (!/^[A-F0-9]{5}$/i.test(String(prefix || ''))) throw new Error('HIBP_INVALID_PREFIX');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${API}${encodeURIComponent(prefix)}`, {
+        method: 'GET',
+        headers: { 'Add-Padding': 'true' },
+        cache: 'no-store',
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`HIBP_${response.status}`);
+      const declared = Number(response.headers.get('content-length') || 0);
+      if (declared > MAX_RESPONSE_BYTES) throw new Error('HIBP_RESPONSE_TOO_LARGE');
+      const text = await response.text();
+      if (text.length > MAX_RESPONSE_BYTES) throw new Error('HIBP_RESPONSE_TOO_LARGE');
+      return parseRange(text);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async function checkEntries(entries, onProgress = null) {

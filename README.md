@@ -1,59 +1,51 @@
-# Keyron v0.6.3
+# Keyron v1.0.0
 
-Cofre visual de credenciais com criptografia local, biometria por dispositivo e sincronização pelo Google Drive do próprio usuário.
+O Keyron é um cofre pessoal de credenciais em HTML, CSS e JavaScript puros. O conteúdo é cifrado no navegador antes de qualquer persistência e o Google Drive recebe somente o bundle cifrado.
 
-## O que mudou nesta versão
+## Proteção principal
 
-- Removidos completamente os sons de bloqueio e desbloqueio; o Keyron agora funciona em silêncio.
-- Removida a tela intermediária “Verificando o seu Drive…” depois da escolha do e-mail. A mesma verificação cifrada continua acontecendo na tela de acesso, sem criar uma tela extra.
-- Gavetas: os botões de mover (← →) saíram — agora é só arrastar o cabeçalho da gaveta para qualquer posição.
-- Ícones padrão das gavetas trocados de emojis coloridos para símbolos geométricos consistentes (migração automática também corrige gavetas já existentes com os ícones antigos).
-- Corrigido o real motivo do login com Google parecer travado por alguns segundos: o botão Enter era reabilitado antes da busca no Drive terminar, permitindo um clique duplo que reabria o seletor de conta. Agora vira um indicador de carregamento (bolinha azul-clara animada) até a tela de senha mestra aparecer.
-- Título "Meu Keyron" bem menos evidente.
-- Ordem dos botões do topo: Sincronizado, Bloqueio, Configurações, Hub Borion.
-- Logo do topo trocado pela versão só com a escrita "KEYRON", sem o ícone.
-- Verificador de senhas vazadas: "Alterar agora" passou a mostrar a senha exposta atual (visível, pronta pra revisar) em vez de já gerar uma senha nova por conta própria — a troca continua sendo escolha do usuário.
-- Chave de recuperação real: ao criar o cofre (ou migrar um cofre antigo), o Keyron gera um código de recuperação de alta entropia mostrado uma única vez. Com ele, dá para definir uma nova senha mestra sem perder nenhuma credencial, mesmo esquecendo a senha atual — sem perguntas pessoais e sem porta dos fundos.
-- Trocar a senha mestra agora só re-embrulha a chave de dados do cofre (muito mais rápido) e não invalida a chave de recuperação.
-- Opção em Configurações → Segurança para gerar uma nova chave de recuperação quando quiser (invalida a anterior).
-- Correção do bug de notificação/toast aparecendo dentro do fluxo da página em vez de flutuar por cima.
-- Botão "Alterar agora" nas senhas encontradas em vazamentos, já abrindo a credencial com uma senha forte nova gerada.
-- Ícones das Configurações padronizados em SVG (sem emojis soltos).
-- Animações visuais de bloqueio/desbloqueio mantidas, agora sem áudio.
-- Ícone instalável com fundo transparente.
-- Link para o Hub Borion no topo do app.
-- Splash de entrada suave e pulso azul contínuo nas telas de Entrar/Desbloquear.
-- Área de Atividade com rolagem maior.
-- Login com Google simplificado para pedir apenas o escopo do Drive — remove telas de consentimento extras que exigiam mais de um clique para autenticar.
+- Google OAuth como primeira barreira de acesso.
+- Cofre vinculado criptograficamente ao `permissionId` estável da conta Google verificada.
+- AES-256-GCM com tag de autenticação de 128 bits.
+- Chave de dados aleatória de 256 bits, independente da senha mestra.
+- PBKDF2-HMAC-SHA-256 com 600.000 iterações, salt aleatório de 16 bytes e limites defensivos de KDF.
+- IV aleatório de 12 bytes em cada cifragem.
+- Senha mestra e chave de recuperação usadas apenas para proteger a chave de dados.
+- Formato de cofre v4 com selo autenticado sobre conteúdo, envelopes de chave, conta proprietária, revisão e linhagem de operações.
+- Google Drive limitado ao escopo `drive.file`.
+- ETag + `If-Match` para impedir sobrescrita silenciosa entre dispositivos.
+- WAL local cifrado para reduzir perda de alterações antes da confirmação remota.
+- Biometria local por WebAuthn/PRF quando o navegador e o dispositivo oferecem suporte.
 
-## Segurança
+## O que fica em texto legível
 
-- AES-256-GCM com autenticação do conteúdo.
-- PBKDF2-HMAC-SHA-256 com 600.000 iterações.
-- Chave de dados (DEK) aleatória e independente da senha, embrulhada separadamente pela senha mestra e pela chave de recuperação — nenhuma delas decifra a outra.
-- AAD vinculado ao identificador do cofre.
-- Senha mestra e chave de recuperação nunca persistidas em texto puro.
-- Conteúdo cifrado antes de ser enviado ao Drive.
-- Escopo Google `drive.file` apenas.
-- Biometria protegida localmente por WebAuthn/PRF quando o navegador oferece suporte.
+Enquanto o cofre está desbloqueado, o navegador precisa manter temporariamente o conteúdo em memória para exibi-lo. Ao bloquear, ocultar a aba pelo tempo configurado ou entrar em BFCache, o Keyron limpa a interface e descarta as referências à chave e ao cofre legível.
 
-## Verificação de vazamentos
+No armazenamento local, no WAL, nos backups exportados e no Google Drive ficam apenas bundles cifrados. O token OAuth permanece somente em memória.
 
-O Keyron calcula SHA-1 localmente apenas porque esse é o protocolo de consulta da API Pwned Passwords. A senha e o hash completo não são enviados. Somente os 5 primeiros caracteres do hash são consultados; o restante é comparado dentro do aparelho.
+## Estrutura no Google Drive
 
-Os resultados — identificador da credencial, quantidade conhecida e data — ficam salvos dentro do próprio cofre cifrado. Nenhuma senha ou hash é gravado na auditoria.
+O aplicativo cria uma pasta `Keyron`, um arquivo principal `vault.keyron` e uma subpasta `Backups`. Snapshots e cópias de conflito continuam cifrados. O Google ainda consegue ver metadados como nome, tamanho e datas dos arquivos, mas não o conteúdo interno do cofre.
 
-## Recuperação da senha mestra
+## Recuperação
 
-O Keyron não usa CPF, CEP, telefone, nome da mãe ou perguntas pessoais para liberar o cofre — esses dados são descobríveis e criariam uma porta dos fundos.
+Na criação do cofre, o Keyron gera uma chave de recuperação aleatória de 30 caracteres. Ela é mostrada uma única vez e deve ser guardada fora do aparelho. Não existe recuperação por CPF, telefone, CEP, e-mail ou perguntas pessoais.
 
-Em vez disso, toda vez que um cofre é criado (ou um cofre antigo é migrado para essa versão), o Keyron gera uma **chave de recuperação** aleatória e mostra-a uma única vez, na tela, para o usuário guardar em local seguro fora do aparelho. Essa chave consegue destravar o cofre e definir uma nova senha mestra — sem apagar nenhuma credencial — mesmo que a senha atual seja esquecida. Sem a senha mestra e sem essa chave, o conteúdo permanece inacessível, inclusive para o próprio Keyron.
+Backups antigos continuam protegidos pelas credenciais válidas quando foram criados. Trocar a senha mestra ou regenerar a chave de recuperação não reescreve automaticamente cópias históricas já exportadas.
+
+## Verificação de senhas vazadas
+
+A consulta ao Pwned Passwords usa k-anonymity: o SHA-1 é calculado localmente e somente os cinco primeiros caracteres do hash são enviados. A senha e o hash completo não saem do aparelho. O SHA-1 não é usado na criptografia do cofre.
 
 ## Publicação
 
-1. Configure `js/config.js` conforme `CONFIGURACAO.md`.
-2. Publique todo o conteúdo desta pasta em um domínio HTTPS.
-3. Autorize o domínio no cliente OAuth do Google.
-4. Abra o Keyron, faça login uma vez e crie ou desbloqueie o cofre.
+1. Confira o Client ID em `js/config.js`.
+2. Autorize o domínio HTTPS exato no cliente OAuth do Google.
+3. Publique todo o conteúdo desta pasta sem alterar a estrutura.
+4. Faça os testes ao vivo descritos em `TESTES.md` no domínio final.
 
-O projeto é HTML, CSS e JavaScript puros; não exige Node.js no servidor.
+O projeto não exige Node.js no servidor. O Node.js é usado apenas para executar os testes locais incluídos em `tests/`.
+
+## Limite honesto de segurança
+
+Nenhum aplicativo web pode proteger credenciais de um sistema operacional comprometido, keylogger, extensão maliciosa com acesso à página, navegador adulterado ou código malicioso servido pelo mesmo domínio. A força contra ataque offline também depende diretamente de uma senha mestra longa, exclusiva e difícil de adivinhar.

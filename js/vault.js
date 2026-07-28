@@ -1,4 +1,5 @@
 const KeyronVault = (() => {
+  'use strict';
   const DEFAULT_COLUMNS = [
     ['Bancos', '▣'], ['Streaming', '◆'], ['Jogos', '⬡'], ['Redes sociais', '◎'], ['Trabalho', '◈'], ['Outros', '✦']
   ];
@@ -11,7 +12,20 @@ const KeyronVault = (() => {
   const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
   const ACTIVITY_TYPES = new Set(['entry', 'column', 'category', 'security']);
   const ACTIVITY_MAX = 200;
+  const MAX_COLUMNS = 100;
+  const MAX_CATEGORIES = 200;
+  const MAX_ENTRIES = 10000;
+  const MAX_LOGO_BYTES = 4 * 1024 * 1024;
+  const MAX_LOGO_DATA_URL_CHARS = 6 * 1024 * 1024;
   const UNCATEGORIZED = '__uncategorized__';
+
+  const validDate = (value, fallback = now()) => (typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value)) ? value : fallback);
+  function uniqueId(value, seen) {
+    let candidate = clean(value, 160) || id();
+    while (seen.has(candidate)) candidate = id();
+    seen.add(candidate);
+    return candidate;
+  }
 
   // Cofres criados antes desta versão têm as gavetas padrão com emojis coloridos
   // (inconsistentes entre plataformas). Ao normalizar, troca só esses ícones antigos
@@ -68,12 +82,16 @@ const KeyronVault = (() => {
 
   function normalizeLogo(logo) {
     if (!logo || typeof logo !== 'object' || typeof logo.dataUrl !== 'string') return null;
-    if (!/^data:image\/(png|jpeg|webp);base64,/i.test(logo.dataUrl)) return null;
+    if (logo.dataUrl.length > MAX_LOGO_DATA_URL_CHARS) return null;
+    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(logo.dataUrl)) return null;
+    const declaredBytes = Number(logo.bytes) || 0;
+    const estimatedBytes = Math.floor((logo.dataUrl.length - logo.dataUrl.indexOf(',') - 1) * 3 / 4);
+    if (declaredBytes < 0 || declaredBytes > MAX_LOGO_BYTES || estimatedBytes > MAX_LOGO_BYTES + 3) return null;
     return {
       dataUrl: logo.dataUrl,
       type: clean(logo.type, 40),
       name: clean(logo.name, 120),
-      bytes: Number(logo.bytes) || 0
+      bytes: declaredBytes || estimatedBytes
     };
   }
 
@@ -120,21 +138,23 @@ const KeyronVault = (() => {
   }
 
   function normalize(vault) {
-    if (!vault || typeof vault !== 'object') return emptyVault();
+    if (!vault || typeof vault !== 'object' || Array.isArray(vault)) return emptyVault();
     if (Number(vault.version) >= 2 && Array.isArray(vault.columns) && Array.isArray(vault.categories)) {
       const fallback = emptyVault();
-      const sourceColumns = vault.columns.length ? vault.columns : fallback.columns;
+      const sourceColumns = (vault.columns.length ? vault.columns : fallback.columns).slice(0, MAX_COLUMNS);
+      const seenColumns = new Set();
       const columns = sourceColumns.map((column, index) => ({
-        id: column?.id || id(),
+        id: uniqueId(column?.id, seenColumns),
         name: clean(column?.name, 50) || `Gaveta ${index + 1}`,
         icon: fixLegacyIcon(clean(column?.name, 50), clean(column?.icon, 8)) || '◈',
         order: index,
-        createdAt: column?.createdAt || now()
+        createdAt: validDate(column?.createdAt)
       }));
       const columnIds = new Set(columns.map((column) => column.id));
       const defaultColumnId = columns[columns.length - 1].id;
-      const sourceEntries = Array.isArray(vault.entries) ? vault.entries : [];
+      const sourceEntries = (Array.isArray(vault.entries) ? vault.entries : []).slice(0, MAX_ENTRIES);
       const entries = [];
+      const seenEntries = new Set();
 
       for (const column of columns) {
         const oldVisualOrder = sourceEntries
@@ -146,25 +166,47 @@ const KeyronVault = (() => {
             if (aHas !== bHas) return aHas ? -1 : 1;
             return Date.parse(b?.updatedAt || 0) - Date.parse(a?.updatedAt || 0);
           });
-        oldVisualOrder.forEach((entry, index) => entries.push(normalizeEntry(entry, column.id, index)));
+        oldVisualOrder.forEach((entry, index) => {
+          const normalizedEntry = normalizeEntry(entry, column.id, index);
+          normalizedEntry.id = uniqueId(entry?.id, seenEntries);
+          normalizedEntry.columnId = column.id;
+          normalizedEntry.createdAt = validDate(entry?.createdAt);
+          normalizedEntry.updatedAt = validDate(entry?.updatedAt, normalizedEntry.createdAt);
+          entries.push(normalizedEntry);
+        });
       }
 
+      const seenCategories = new Set();
+      const categories = vault.categories.slice(0, MAX_CATEGORIES).map((category, index) => ({
+        id: uniqueId(category?.id, seenCategories),
+        name: clean(category?.name, 40) || `Categoria ${index + 1}`,
+        color: /^#[0-9a-f]{6}$/i.test(category?.color || '') ? category.color : '#2f8cff',
+        order: index
+      }));
+      const categoryIds = new Set(categories.map((category) => category.id));
+      entries.forEach((entry) => { if (!categoryIds.has(entry.categoryId)) entry.categoryId = null; });
+
+      const rawPreferences = vault.preferences && typeof vault.preferences === 'object' ? vault.preferences : {};
+      const autoLockMinutes = Math.max(1, Math.min(60, Number(rawPreferences.autoLockMinutes) || fallback.preferences.autoLockMinutes));
+      const clipboardClearSeconds = Math.max(5, Math.min(120, Number(rawPreferences.clipboardClearSeconds) || fallback.preferences.clipboardClearSeconds));
+      const boardColumns = ['auto', '2', '3', '4', '5', '6'].includes(String(rawPreferences.boardColumns)) ? String(rawPreferences.boardColumns) : 'auto';
+
       const normalized = {
-        ...fallback,
-        ...vault,
-        id: vault.id || id(),
+        id: clean(vault.id, 160) || id(),
         version: 3,
+        createdAt: validDate(vault.createdAt),
+        updatedAt: validDate(vault.updatedAt),
         columns,
-        categories: vault.categories.map((category, index) => ({
-          id: category?.id || id(),
-          name: clean(category?.name, 40) || `Categoria ${index + 1}`,
-          color: /^#[0-9a-f]{6}$/i.test(category?.color || '') ? category.color : '#2f8cff',
-          order: index
-        })),
+        categories,
         entries,
         activity: Array.isArray(vault.activity) ? vault.activity.slice(0, ACTIVITY_MAX).map(normalizeActivity) : [],
         securityAudit: normalizeSecurityAudit(vault.securityAudit),
-        preferences: { ...fallback.preferences, ...(vault.preferences || {}) }
+        preferences: {
+          autoLockMinutes,
+          clipboardClearSeconds,
+          boardColumns,
+          breachCheckWeekly: rawPreferences.breachCheckWeekly !== false
+        }
       };
       normalizeOrders(normalized);
       return normalized;
@@ -174,9 +216,9 @@ const KeyronVault = (() => {
     const otherColumn = migrated.columns.find((column) => column.name === 'Outros') || migrated.columns[0];
     const otherCategory = migrated.categories.find((category) => category.name === 'Outro') || null;
     migrated.entries = Array.isArray(vault.entries)
-      ? vault.entries.map((entry, index) => normalizeEntry({ ...entry, columnId: otherColumn.id, categoryId: otherCategory?.id || null, order: index }, otherColumn.id, index))
+      ? vault.entries.slice(0, MAX_ENTRIES).map((entry, index) => normalizeEntry({ ...entry, columnId: otherColumn.id, categoryId: otherCategory?.id || null, order: index }, otherColumn.id, index))
       : [];
-    migrated.createdAt = vault.createdAt || migrated.createdAt;
+    migrated.createdAt = validDate(vault.createdAt, migrated.createdAt);
     migrated.updatedAt = now();
     return migrated;
   }
@@ -187,6 +229,7 @@ const KeyronVault = (() => {
   }
 
   function addEntry(vault, data) {
+    if (vault.entries.length >= MAX_ENTRIES) throw new Error('ENTRY_LIMIT');
     const columnId = vault.columns.some((column) => column.id === data.columnId) ? data.columnId : vault.columns[0]?.id;
     vault.entries.filter((entry) => entry.columnId === columnId).forEach((entry) => { entry.order = Number(entry.order || 0) + 1; });
     const entry = normalizeEntry({ ...data, id: id(), columnId, order: 0, createdAt: now(), updatedAt: now() }, columnId, 0);
@@ -254,6 +297,7 @@ const KeyronVault = (() => {
   }
 
   function addColumn(vault, name, icon) {
+    if (vault.columns.length >= MAX_COLUMNS) throw new Error('COLUMN_LIMIT');
     const normalizedName = clean(name, 50);
     if (!normalizedName) throw new Error('COLUMN_NAME_REQUIRED');
     if (vault.columns.some((column) => column.name.toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR'))) throw new Error('COLUMN_DUPLICATE');
@@ -305,6 +349,7 @@ const KeyronVault = (() => {
   }
 
   function addCategory(vault, name, color) {
+    if (vault.categories.length >= MAX_CATEGORIES) throw new Error('CATEGORY_LIMIT');
     const normalizedName = clean(name, 40);
     if (!normalizedName) throw new Error('CATEGORY_NAME_REQUIRED');
     if (vault.categories.some((category) => category.name.toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR'))) throw new Error('CATEGORY_DUPLICATE');

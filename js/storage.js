@@ -1,6 +1,7 @@
 // Armazena somente o bundle cifrado. IndexedDB evita o limite reduzido do localStorage,
 // especialmente quando o cofre contém logos.
 const KeyronStorage = (() => {
+  'use strict';
   const DB_NAME = 'keyron-secure-vault';
   const DB_VERSION = 1;
   const STORE = 'encrypted';
@@ -21,6 +22,10 @@ const KeyronStorage = (() => {
 
   function localRemove(key) {
     try { localStorage.removeItem(key); } catch { /* armazenamento indisponível */ }
+  }
+
+  function fallbackKeyFor(key) {
+    return key === CURRENT_KEY ? FALLBACK_KEY : `${FALLBACK_KEY}_${key}`;
   }
 
   function openDb() {
@@ -48,8 +53,13 @@ const KeyronStorage = (() => {
         request.onerror = () => reject(request.error);
       });
     } catch {
-      const raw = localGet(key === CURRENT_KEY ? FALLBACK_KEY : `${FALLBACK_KEY}_${key}`);
-      return raw ? JSON.parse(raw) : null;
+      const fallbackKey = fallbackKeyFor(key);
+      const raw = localGet(fallbackKey);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch {
+        localRemove(fallbackKey);
+        return null;
+      }
     }
   }
 
@@ -63,9 +73,11 @@ const KeyronStorage = (() => {
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error || new Error('INDEXEDDB_WRITE_ABORTED'));
       });
+      // Uma cópia antiga no fallback não pode ressuscitar depois de logout/limpeza.
+      localRemove(fallbackKeyFor(key));
     } catch (error) {
       try {
-        if (!localSet(key === CURRENT_KEY ? FALLBACK_KEY : `${FALLBACK_KEY}_${key}`, JSON.stringify(value))) throw error;
+        if (!localSet(fallbackKeyFor(key), JSON.stringify(value))) throw error;
       } catch {
         throw error;
       }
@@ -81,9 +93,8 @@ const KeyronStorage = (() => {
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
-    } catch {
-      localRemove(key === CURRENT_KEY ? FALLBACK_KEY : `${FALLBACK_KEY}_${key}`);
-    }
+    } catch { /* IndexedDB indisponível: o fallback ainda será removido abaixo. */ }
+    localRemove(fallbackKeyFor(key));
   }
 
   async function loadCurrent() {
@@ -98,6 +109,9 @@ const KeyronStorage = (() => {
     try {
       const parsed = JSON.parse(raw);
       await set(CURRENT_KEY, parsed);
+      // set() remove o fallback somente quando o IndexedDB recebeu a cópia.
+      // Se o fallback foi o único backend disponível, ele precisa permanecer.
+      localRemove(LEGACY_KEY);
       return parsed;
     } catch {
       return null;

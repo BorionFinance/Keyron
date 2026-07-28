@@ -10,7 +10,7 @@ const KeyronDrive = (() => {
   const BACKUP_FOLDER_NAME = 'Backups';
   const VAULT_NAME = 'vault.keyron';
   const FOLDER_MIME = 'application/vnd.google-apps.folder';
-  const SNAPSHOT_CACHE_KEY = 'keyron_last_snapshot_at_v3';
+  const SNAPSHOT_CACHE_KEY = 'keyron_last_snapshot_at_v4';
 
   let tokenClient = null;
   let accessToken = null;
@@ -18,6 +18,7 @@ const KeyronDrive = (() => {
   let callbacks = { ready: null, error: null };
   let cachedStructure = null;
   let cachedRemoteBundle = null;
+  let cachedVaultEtag = null;
   let currentUser = null;
   let snapshotInFlight = null;
 
@@ -38,7 +39,19 @@ const KeyronDrive = (() => {
         }
         accessToken = response.access_token;
         tokenExpiresAt = Date.now() + (Number(response.expires_in || 3600) * 1000) - 60000;
-        fetchCurrentUser().catch(() => null).finally(() => callbacks.ready?.(currentUser));
+        // Um novo token pode pertencer a outra conta: nunca reutilize IDs/ETag do Drive anterior.
+        cachedStructure = null;
+        cachedRemoteBundle = null;
+        cachedVaultEtag = null;
+        currentUser = null;
+        fetchCurrentUser()
+          .then((profile) => callbacks.ready?.(profile))
+          .catch((error) => {
+            console.error('[KeyronDrive] conta Google sem identificador verificável', error);
+            accessToken = null;
+            tokenExpiresAt = 0;
+            callbacks.error?.('GOOGLE_ACCOUNT_ID_UNAVAILABLE');
+          });
       },
       error_callback: (error) => callbacks.error?.(error?.type || 'Falha na janela de autenticação')
     });
@@ -46,13 +59,12 @@ const KeyronDrive = (() => {
 
   function connect(forceAccountChoice = false) {
     if (!tokenClient) throw new Error('GOOGLE_CLIENT_NOT_INITIALIZED');
-    const options = forceAccountChoice ? { prompt: 'select_account' } : {};
-    tokenClient.requestAccessToken(options);
+    tokenClient.requestAccessToken(forceAccountChoice ? { prompt: 'select_account' } : {});
   }
 
   async function fetchCurrentUser() {
     if (!isConnected()) return null;
-    const response = await apiFetch(`${API}/about?fields=user`, { cache: 'no-store' });
+    const response = await apiFetch(`${API}/about?fields=user(permissionId,displayName,emailAddress,photoLink)`, { cache: 'no-store' });
     const data = await response.json();
     const profile = data?.user || {};
     currentUser = {
@@ -61,6 +73,7 @@ const KeyronDrive = (() => {
       email: profile.emailAddress || '',
       picture: profile.photoLink || ''
     };
+    if (!currentUser.id) throw new Error('GOOGLE_ACCOUNT_ID_UNAVAILABLE');
     return currentUser;
   }
 
@@ -74,6 +87,7 @@ const KeyronDrive = (() => {
     tokenExpiresAt = 0;
     cachedStructure = null;
     cachedRemoteBundle = null;
+    cachedVaultEtag = null;
     currentUser = null;
   }
 
@@ -94,7 +108,7 @@ const KeyronDrive = (() => {
       try {
         const headers = new Headers(options.headers || {});
         headers.set('Authorization', `Bearer ${accessToken}`);
-        const response = await fetch(url, { ...options, headers, signal: options.signal || controller.signal });
+        const response = await fetch(url, { ...options, headers, signal: options.signal || controller.signal, referrerPolicy: 'no-referrer' });
         if (response.ok) return response;
 
         const body = await response.text().catch(() => '');
@@ -139,33 +153,61 @@ const KeyronDrive = (() => {
     return response.json();
   }
 
+  function maxBundleBytes() {
+    return Number(KeyronConfig.MAX_BUNDLE_BYTES || KeyronCrypto.MAX_CIPHERTEXT_BYTES || 67108864);
+  }
+
+  function serializeBundle(content) {
+    KeyronCrypto.assertValidBundle(content);
+    const serialized = JSON.stringify(content);
+    if (new TextEncoder().encode(serialized).byteLength > maxBundleBytes()) {
+      throw new Error('DRIVE_VAULT_TOO_LARGE');
+    }
+    return serialized;
+  }
+
   async function createJsonFile(metadata, content, fields = 'id,name,createdTime,modifiedTime,parents,appProperties') {
+    const serialized = serializeBundle(content);
     const boundary = `keyron_${KeyronCrypto.randomId().replace(/[^a-z0-9]/gi, '')}`;
     const body =
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-      `--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n${JSON.stringify(content)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n${serialized}\r\n` +
       `--${boundary}--`;
     const response = await apiFetch(`${UPLOAD}/files?uploadType=multipart&fields=${encodeURIComponent(fields)}`, {
       method: 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
       body
     }, { idempotent: false, timeoutMs: 30000 });
-    return response.json();
+    return { file: await response.json(), etag: response.headers.get('etag') || null };
   }
 
-  async function updateJsonFile(fileId, content) {
+  async function updateJsonFile(fileId, content, expectedEtag = null) {
+    const serialized = serializeBundle(content);
+    if (!expectedEtag) {
+      const error = new Error('DRIVE_ETAG_UNAVAILABLE');
+      error.code = 'DRIVE_ETAG_UNAVAILABLE';
+      throw error;
+    }
+    const headers = { 'Content-Type': 'application/octet-stream', 'If-Match': expectedEtag };
     const response = await apiFetch(`${UPLOAD}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id,name,modifiedTime`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: JSON.stringify(content)
+      headers,
+      body: serialized
     }, { attempts: 3, timeoutMs: 30000 });
-    return response.json();
+    return { file: await response.json(), etag: response.headers.get('etag') || null };
   }
 
   async function downloadJsonFile(fileId) {
     const response = await apiFetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media`, { cache: 'no-store' });
+    const maxBytes = maxBundleBytes();
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > maxBytes) throw new Error('DRIVE_VAULT_TOO_LARGE');
     const text = await response.text();
-    try { return JSON.parse(text); } catch { throw new Error('DRIVE_INVALID_VAULT_FILE'); }
+    if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Error('DRIVE_VAULT_TOO_LARGE');
+    let bundle;
+    try { bundle = JSON.parse(text); } catch { throw new Error('DRIVE_INVALID_VAULT_FILE'); }
+    try { KeyronCrypto.assertValidBundle(bundle); } catch { throw new Error('DRIVE_INVALID_VAULT_FILE'); }
+    return { bundle, etag: response.headers.get('etag') || null };
   }
 
   async function findOrCreateFolder({ name, parentId = null, role }) {
@@ -182,7 +224,7 @@ const KeyronDrive = (() => {
       name,
       mimeType: FOLDER_MIME,
       parents: parentId ? [parentId] : undefined,
-      appProperties: { keyronRole: role, keyronVersion: '3' }
+      appProperties: { keyronRole: role, keyronVersion: '4' }
     });
   }
 
@@ -210,20 +252,23 @@ const KeyronDrive = (() => {
     const result = await listFiles("name='borion-senhas-vault.json' and trashed=false");
     const file = result.files?.[0];
     if (!file) return null;
-    const bundle = await downloadJsonFile(file.id);
-    return { bundle, file, legacy: true };
+    const downloaded = await downloadJsonFile(file.id);
+    return { bundle: downloaded.bundle, file, etag: downloaded.etag, legacy: true };
   }
 
-  async function loadBundle() {
+  async function loadBundle({ force = false } = {}) {
     const structure = await ensureStructure();
     if (structure.vault) {
-      const bundle = await downloadJsonFile(structure.vault.id);
-      cachedRemoteBundle = bundle;
-      return { bundle, file: structure.vault, legacy: false };
+      if (!force && cachedRemoteBundle) return { bundle: cachedRemoteBundle, file: structure.vault, etag: cachedVaultEtag, legacy: false };
+      const downloaded = await downloadJsonFile(structure.vault.id);
+      cachedRemoteBundle = downloaded.bundle;
+      cachedVaultEtag = downloaded.etag;
+      return { bundle: downloaded.bundle, file: structure.vault, etag: downloaded.etag, legacy: false };
     }
     const legacy = await findLegacyBundle();
     if (legacy) {
       cachedRemoteBundle = legacy.bundle;
+      cachedVaultEtag = legacy.etag;
       return legacy;
     }
     return null;
@@ -231,15 +276,16 @@ const KeyronDrive = (() => {
 
   async function createVaultFile(bundle) {
     const structure = await ensureStructure();
-    const file = await createJsonFile({
+    const created = await createJsonFile({
       name: VAULT_NAME,
       mimeType: 'application/octet-stream',
       parents: [structure.root.id],
-      appProperties: { keyronRole: 'vault', keyronVersion: '3' }
+      appProperties: { keyronRole: 'vault', keyronVersion: '4' }
     }, bundle);
-    structure.vault = file;
+    structure.vault = created.file;
     cachedRemoteBundle = bundle;
-    return file;
+    cachedVaultEtag = created.etag;
+    return created.file;
   }
 
   async function listBackups() {
@@ -260,31 +306,41 @@ const KeyronDrive = (() => {
     await Promise.all(excess.map((file) => apiFetch(`${API}/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' }).catch(() => null)));
   }
 
+  function snapshotCacheKey() {
+    const account = String(currentUser?.id || 'unverified').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160);
+    return `${SNAPSHOT_CACHE_KEY}:${account}`;
+  }
+
   function readLastSnapshotAt() {
-    try { return Number(localStorage.getItem(SNAPSHOT_CACHE_KEY) || 0); } catch { return 0; }
+    try { return Number(localStorage.getItem(snapshotCacheKey()) || 0); } catch { return 0; }
   }
 
   function writeLastSnapshotAt(value = Date.now()) {
-    try { localStorage.setItem(SNAPSHOT_CACHE_KEY, String(value)); } catch { /* ignore */ }
+    try { localStorage.setItem(snapshotCacheKey(), String(value)); } catch { /* ignore */ }
   }
 
-  async function createSnapshot(bundle = cachedRemoteBundle) {
+  async function createSnapshot(bundle = cachedRemoteBundle, options = {}) {
     if (!bundle) throw new Error('NO_BUNDLE_TO_BACKUP');
-    if (snapshotInFlight) return snapshotInFlight;
-    snapshotInFlight = (async () => {
+    KeyronCrypto.assertValidBundle(bundle);
+    const allowParallel = Boolean(options.conflict);
+    if (snapshotInFlight && !allowParallel) return snapshotInFlight;
+    const work = (async () => {
       const structure = await ensureStructure();
-      const name = `${new Date().toISOString().replace(/[:.]/g, '-')}_${KeyronCrypto.randomId().slice(0, 8)}.keyron`;
-      const file = await createJsonFile({
+      const prefix = options.conflict ? 'CONFLITO_' : '';
+      const name = `${prefix}${new Date().toISOString().replace(/[:.]/g, '-')}_${KeyronCrypto.randomId().slice(0, 8)}.keyron`;
+      const created = await createJsonFile({
         name,
         mimeType: 'application/octet-stream',
         parents: [structure.backups.id],
-        appProperties: { keyronRole: 'backup', keyronVersion: '3' }
+        appProperties: { keyronRole: 'backup', keyronVersion: '4', keyronConflict: options.conflict ? 'true' : 'false' }
       }, bundle);
       writeLastSnapshotAt();
       await trimBackups().catch(() => null);
-      return file;
+      return created.file;
     })();
-    try { return await snapshotInFlight; } finally { snapshotInFlight = null; }
+    if (allowParallel) return work;
+    snapshotInFlight = work;
+    try { return await work; } finally { snapshotInFlight = null; }
   }
 
   async function shouldCreateAutomaticSnapshot() {
@@ -298,23 +354,37 @@ const KeyronDrive = (() => {
     return !Number.isFinite(newest) || Date.now() - newest > interval;
   }
 
+  async function ensureCurrentEtag(structure) {
+    if (cachedVaultEtag || !structure.vault) return;
+    const downloaded = await downloadJsonFile(structure.vault.id);
+    cachedRemoteBundle = downloaded.bundle;
+    cachedVaultEtag = downloaded.etag;
+  }
+
   async function saveBundle(bundle, { automaticSnapshot = true } = {}) {
+    KeyronCrypto.assertValidBundle(bundle);
     const structure = await ensureStructure();
     if (!structure.vault) return createVaultFile(bundle);
 
+    await ensureCurrentEtag(structure);
     const previousRemote = cachedRemoteBundle;
-    const result = await updateJsonFile(structure.vault.id, bundle);
-    structure.vault = { ...structure.vault, ...result };
+    const updated = await updateJsonFile(structure.vault.id, bundle, cachedVaultEtag);
+    structure.vault = { ...structure.vault, ...updated.file };
     cachedRemoteBundle = bundle;
+    cachedVaultEtag = updated.etag;
 
-    // O snapshot da versão anterior é feito depois da confirmação do current,
-    // em segundo plano, para não atrasar o salvamento principal.
     if (automaticSnapshot && previousRemote) {
       shouldCreateAutomaticSnapshot()
         .then((needed) => needed && createSnapshot(previousRemote))
         .catch(() => null);
     }
-    return result;
+    return updated.file;
+  }
+
+  async function reloadBundle() {
+    cachedRemoteBundle = null;
+    cachedVaultEtag = null;
+    return loadBundle({ force: true });
   }
 
   return Object.freeze({
@@ -327,6 +397,7 @@ const KeyronDrive = (() => {
     isConnected,
     getCurrentUser,
     loadBundle,
+    reloadBundle,
     saveBundle,
     createSnapshot,
     ensureStructure

@@ -26,7 +26,10 @@ const KeyronSaveEngine = (() => {
   }
 
   function randomId() {
-    return KeyronCrypto?.randomId?.() || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+    if (globalThis.KeyronCrypto?.randomId) return KeyronCrypto.randomId();
+    if (crypto.randomUUID) return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
   }
 
   function getDeviceId() {
@@ -105,8 +108,13 @@ const KeyronSaveEngine = (() => {
         const recordOperationId = String(record.bundle?.operationId || record.operationId || '');
         const sameVault = String(record.bundle?.vaultId || '') === String(bundle?.vaultId || '');
         const exactOperation = confirmedOperationId && recordOperationId === confirmedOperationId;
-        const noNewerPending = recordRevision <= confirmedRevision;
-        if (sameVault && (exactOperation || noNewerPending)) {
+        const recordVersion = Number(record.bundle?.formatVersion || 0);
+        const confirmedVersion = Number(bundle?.formatVersion || 0);
+        const confirmedDescendsPending = confirmedVersion >= 4 && recordVersion >= 4 && recordOperationId &&
+          Array.isArray(bundle?.ancestors) && bundle.ancestors.includes(recordOperationId);
+        const legacyConfirmed = confirmedVersion < 4 && recordVersion < 4 && recordRevision <= confirmedRevision;
+        // Nunca descarte um WAL divergente só porque o número da revisão remota é maior.
+        if (sameVault && (exactOperation || confirmedDescendsPending || legacyConfirmed)) {
           store.delete(PENDING_ID);
           removed = true;
         }
@@ -180,16 +188,14 @@ const KeyronSaveEngine = (() => {
         const source = currentBundle || task.bundle;
         if (!source) throw new Error('SAVE_ENGINE_NO_BASE_BUNDLE');
 
-        const encrypted = await KeyronCrypto.updateBundle(task.key, source, task.vault);
         const revision = Math.max(Number(source.revision || 0), Number(task.bundle?.revision || 0)) + 1;
-        const bundle = {
-          ...encrypted,
+        const bundle = await KeyronCrypto.updateBundle(task.key, source, task.vault, {
           revision,
           operationId: task.operationId,
           deviceId,
           saveReason: task.reason,
           locallySavedAt: new Date().toISOString()
-        };
+        });
         const record = {
           id: PENDING_ID,
           schema: 1,
@@ -245,14 +251,14 @@ const KeyronSaveEngine = (() => {
 
   async function stageBundle(bundle, reason = 'bundle-stage') {
     if (!bundle) throw new Error('SAVE_ENGINE_NO_BUNDLE');
-    const operationId = bundle.operationId || randomId();
-    const staged = {
-      ...clone(bundle),
-      operationId,
-      deviceId: bundle.deviceId || deviceId,
-      saveReason: String(reason || 'bundle-stage').slice(0, 80),
-      locallySavedAt: bundle.locallySavedAt || new Date().toISOString()
-    };
+    // Metadados de bundles v4 fazem parte da autenticação criptográfica. Nunca os
+    // altere aqui depois que o Crypto os selou; apenas persista a cópia exata.
+    KeyronCrypto.assertValidBundle(bundle, { allowLegacy: false });
+    const staged = clone(bundle);
+    const operationId = staged.operationId || randomId();
+    if (Number(staged.formatVersion || 0) >= 4 && !staged.operationId) {
+      throw new Error('SAVE_ENGINE_UNSIGNED_METADATA');
+    }
     const task = {
       bundle: staged,
       sequence: nextSequence(),
@@ -305,6 +311,22 @@ const KeyronSaveEngine = (() => {
     });
   }
 
+
+  async function discardPending() {
+    try {
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_PENDING, 'readwrite');
+        tx.objectStore(STORE_PENDING).delete(PENDING_ID);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('SAVE_ENGINE_PENDING_DISCARD_FAILED'));
+      });
+    } catch { /* fallback marker is still cleared below */ }
+    try { localStorage.removeItem(MARKER_KEY); } catch { /* ignore */ }
+    latestTask = null;
+    return true;
+  }
+
   async function status() {
     const pending = await getPendingRecord();
     return {
@@ -338,6 +360,7 @@ const KeyronSaveEngine = (() => {
     flush,
     loadPendingBundle,
     confirmRemote,
+    discardPending,
     status,
     withDriveLock,
     onEvent,

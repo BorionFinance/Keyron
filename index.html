@@ -9,55 +9,40 @@
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=0.3.1" />
+  <link rel="manifest" href="manifest.json?v=0.3.2" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <link rel="stylesheet" href="css/style.css?v=0.3.1" />
+  <link rel="stylesheet" href="css/style.css?v=0.3.2" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
   <div class="ambient ambient--two" aria-hidden="true"></div>
   <div id="toast-area" class="toast-area" aria-live="polite" aria-atomic="true"></div>
 
-  <main id="access-shell" class="access-shell">
-    <section class="access-card" aria-labelledby="access-title">
-      <div class="access-brand">
+  <main id="access-shell" class="access-shell access-shell--minimal">
+    <section class="access-card access-card--minimal" aria-label="Acesso ao Keyron">
+      <div class="access-brand access-brand--minimal">
         <img src="assets/keyron-logo.png" alt="Keyron" class="access-logo" />
-        <span class="version-pill">v0.3.1</span>
+        <span class="version-pill">v0.3.2</span>
       </div>
 
-      <div id="google-step" class="access-step">
-        <div class="eyebrow"><span class="status-dot"></span> Cofre privado em duas camadas</div>
-        <h1 id="access-title">Primeiro, confirme que é você.</h1>
-        <p class="lead">O Google libera somente o arquivo criado pelo Keyron no seu Drive. Depois disso, a senha mestra abre o conteúdo cifrado.</p>
-
+      <div id="google-step" class="access-step access-step--minimal">
         <button type="button" id="google-connect-btn" class="btn btn--google btn--wide">
           <span class="google-g" aria-hidden="true">G</span>
           Verificar com Google
         </button>
-        <p id="google-state" class="inline-state">Aguardando verificação do Google.</p>
-
-        <div class="security-grid" aria-label="Camadas de segurança">
-          <div class="security-tile"><strong>Google OAuth</strong><span>primeira barreira de acesso</span></div>
-          <div class="security-tile"><strong>AES‑256‑GCM</strong><span>dados cifrados antes do envio</span></div>
-          <div class="security-tile"><strong>Drive privado</strong><span>escopo restrito ao próprio app</span></div>
-        </div>
+        <p id="google-state" class="visually-hidden" aria-live="polite"></p>
       </div>
 
-      <div id="master-step" class="access-step" hidden>
-        <div class="verified-line"><span class="verified-check">✓</span><span>Google verificado nesta sessão</span></div>
-        <div class="vault-orbit" aria-hidden="true">
-          <div class="vault-orbit__ring"></div>
-          <img src="assets/keyron-mark.png" alt="" />
-        </div>
-        <h1 id="master-title">Desbloquear cofre</h1>
-        <p id="master-subtitle" class="lead">Digite sua senha mestra. Ela não é enviada ao Google e não é salva pelo Keyron.</p>
+      <div id="master-step" class="access-step access-step--minimal" hidden>
+        <h1 id="master-title" class="visually-hidden">Desbloquear cofre</h1>
+        <p id="master-subtitle" class="visually-hidden">Digite sua senha mestra</p>
 
         <form id="master-form" autocomplete="off" novalidate>
-          <label class="field-label master-only-label" for="master-password">Senha mestra</label>
+          <label class="field-label master-only-label visually-hidden" for="master-password">Senha mestra</label>
           <div class="secret-field">
             <input type="password" id="master-password" minlength="12" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Digite sua senha mestra" required />
             <button type="button" id="toggle-master" class="field-icon-btn" aria-label="Mostrar ou ocultar senha">◉</button>
@@ -78,21 +63,8 @@
         </form>
 
         <button type="button" id="back-google-btn" class="text-button">Trocar conta Google</button>
-        <p class="zero-knowledge-note">Sem a senha mestra, nem o Google nem o Keyron conseguem ler ou recuperar o conteúdo.</p>
       </div>
     </section>
-
-    <aside class="access-aside" aria-label="Visão geral do Keyron">
-      <div class="aside-kicker">KEYRON / PRIVATE VAULT</div>
-      <h2>Suas credenciais organizadas como você pensa.</h2>
-      <p>Crie gavetas, separe categorias, use logos e arraste cada acesso para o lugar certo. O que aparece aqui só existe em texto legível enquanto o cofre está aberto neste dispositivo.</p>
-      <div class="aside-board" aria-hidden="true">
-        <div class="mini-column"><span>Bancos</span><i></i><i></i></div>
-        <div class="mini-column"><span>Streaming</span><i></i><i></i><i></i></div>
-        <div class="mini-column"><span>Jogos</span><i></i></div>
-      </div>
-      <div class="aside-footer"><span>ZERO‑KNOWLEDGE</span><span>LOCAL‑FIRST</span><span>NO TRACKING</span></div>
-    </aside>
   </main>
 
   <section id="app-screen" class="app-screen" hidden>
@@ -299,14 +271,14 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=0.3.1"></script>
-  <script src="js/crypto.js?v=0.3.1"></script>
-  <script src="js/storage.js?v=0.3.1"></script>
-  <script src="js/save-engine.js?v=0.3.1"></script>
-  <script src="js/vault.js?v=0.3.1"></script>
-  <script src="js/generator.js?v=0.3.1"></script>
-  <script src="js/drive.js?v=0.3.1"></script>
+  <script src="js/config.js?v=0.3.2"></script>
+  <script src="js/crypto.js?v=0.3.2"></script>
+  <script src="js/storage.js?v=0.3.2"></script>
+  <script src="js/save-engine.js?v=0.3.2"></script>
+  <script src="js/vault.js?v=0.3.2"></script>
+  <script src="js/generator.js?v=0.3.2"></script>
+  <script src="js/drive.js?v=0.3.2"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=0.3.1"></script>
+  <script src="js/app.js?v=0.3.2"></script>
 </body>
 </html>

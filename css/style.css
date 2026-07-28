@@ -712,3 +712,110 @@ body[data-access-mode="unlock"] #back-google-btn {
     width: calc(100% - 24px);
   }
 }
+
+/* v0.3.2 — acesso totalmente limpo */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.access-shell--minimal {
+  width: min(520px, calc(100% - 28px));
+  grid-template-columns: 1fr;
+  gap: 0;
+  justify-content: center;
+}
+
+.access-card--minimal {
+  width: 100%;
+  min-height: 440px;
+  padding: 42px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.access-brand--minimal {
+  position: relative;
+  justify-content: center;
+  margin-bottom: 42px;
+}
+
+.access-brand--minimal .access-logo {
+  width: 230px;
+  max-width: 76%;
+}
+
+.access-brand--minimal .version-pill {
+  position: absolute;
+  top: -16px;
+  right: -14px;
+}
+
+.access-step--minimal {
+  width: 100%;
+  max-width: 410px;
+  margin: 0 auto;
+}
+
+#google-step.access-step--minimal {
+  display: grid;
+  gap: 0;
+}
+
+body[data-access-mode="google"] .access-card--minimal,
+body[data-access-mode="unlock"] .access-card--minimal {
+  min-height: 440px;
+}
+
+body[data-access-mode="unlock"] .access-brand--minimal {
+  margin-bottom: 28px;
+}
+
+body[data-access-mode="unlock"] #master-form {
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .access-shell--minimal {
+    width: calc(100% - 18px);
+    min-height: 100dvh;
+    padding: 9px 0;
+  }
+
+  .access-card--minimal {
+    min-height: calc(100dvh - 18px) !important;
+    padding: 28px 20px;
+    border-radius: 24px;
+  }
+
+  .access-brand--minimal {
+    margin-bottom: 34px;
+  }
+
+  .access-brand--minimal .access-logo {
+    width: 210px;
+  }
+
+  .access-brand--minimal .version-pill {
+    top: -12px;
+    right: -2px;
+  }
+}
+
+@media (max-width: 430px) {
+  .access-card--minimal {
+    padding: 24px 16px;
+  }
+
+  .access-brand--minimal .access-logo {
+    width: 185px;
+  }
+}

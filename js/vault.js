@@ -11,7 +11,7 @@ const KeyronVault = (() => {
   const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
 
   function emptyVault() {
-    const columns = DEFAULT_COLUMNS.map(([name, icon], order) => ({ id: id(), name, icon, order, collapsed: false, createdAt: now() }));
+    const columns = DEFAULT_COLUMNS.map(([name, icon], order) => ({ id: id(), name, icon, order, createdAt: now() }));
     const categories = DEFAULT_CATEGORIES.map(([name, color], order) => ({ id: id(), name, color, order }));
     const createdAt = now();
     return {
@@ -23,7 +23,7 @@ const KeyronVault = (() => {
       categories,
       entries: [],
       activity: [],
-      preferences: { autoLockMinutes: 5, clipboardClearSeconds: 20 }
+      preferences: { autoLockMinutes: 5, clipboardClearSeconds: 20, boardColumns: 'auto' }
     };
   }
 
@@ -57,7 +57,7 @@ const KeyronVault = (() => {
         ...vault,
         id: vault.id || id(),
         version: 2,
-        columns: columns.map((c, index) => ({ id: c.id || id(), name: clean(c.name, 50) || `Gaveta ${index + 1}`, icon: clean(c.icon, 3) || '◈', order: index, collapsed: Boolean(c.collapsed), createdAt: c.createdAt || now() })),
+        columns: columns.map((c, index) => ({ id: c.id || id(), name: clean(c.name, 50) || `Gaveta ${index + 1}`, icon: clean(c.icon, 3) || '◈', order: index, createdAt: c.createdAt || now() })),
         categories: vault.categories.map((c, index) => ({ id: c.id || id(), name: clean(c.name, 40) || `Categoria ${index + 1}`, color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#2f8cff', order: index })),
         entries: Array.isArray(vault.entries) ? vault.entries.map((e) => normalizeEntry(e, columnIds.has(e.columnId) ? e.columnId : defaultColumnId)) : [],
         activity: Array.isArray(vault.activity) ? vault.activity.slice(0, ACTIVITY_MAX).map(normalizeActivity) : [],
@@ -145,7 +145,7 @@ const KeyronVault = (() => {
     const normalizedName = clean(name, 50);
     if (!normalizedName) throw new Error('COLUMN_NAME_REQUIRED');
     if (vault.columns.some((c) => c.name.toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR'))) throw new Error('COLUMN_DUPLICATE');
-    const column = { id: id(), name: normalizedName, icon: clean(icon, 3) || '◈', order: vault.columns.length, collapsed: false, createdAt: now() };
+    const column = { id: id(), name: normalizedName, icon: clean(icon, 3) || '◈', order: vault.columns.length, createdAt: now() };
     vault.columns.push(column);
     addActivity(vault, 'column', column.name);
     touch(vault);
@@ -160,19 +160,6 @@ const KeyronVault = (() => {
     if (vault.columns.some((c) => c.id !== columnId && c.name.toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR'))) throw new Error('COLUMN_DUPLICATE');
     column.name = normalizedName;
     column.icon = clean(icon, 3) || column.icon;
-    touch(vault);
-  }
-
-  function toggleColumnCollapsed(vault, columnId) {
-    const column = vault.columns.find((c) => c.id === columnId);
-    if (!column) throw new Error('COLUMN_NOT_FOUND');
-    column.collapsed = !column.collapsed;
-    touch(vault);
-    return column.collapsed;
-  }
-
-  function setAllColumnsCollapsed(vault, collapsed) {
-    vault.columns.forEach((c) => { c.collapsed = collapsed; });
     touch(vault);
   }
 
@@ -219,5 +206,5 @@ const KeyronVault = (() => {
     return [entry.name, entry.username, entry.email, entry.url, entry.notes, entry.secret, category].some((value) => String(value || '').toLocaleLowerCase('pt-BR').includes(q));
   }
 
-  return Object.freeze({ emptyVault, normalize, addEntry, updateEntry, deleteEntry, moveEntry, addColumn, updateColumn, deleteColumn, moveColumn, toggleColumnCollapsed, setAllColumnsCollapsed, addCategory, deleteCategory, addActivity, matches });
+  return Object.freeze({ emptyVault, normalize, addEntry, updateEntry, deleteEntry, moveEntry, addColumn, updateColumn, deleteColumn, moveColumn, addCategory, deleteCategory, addActivity, matches });
 })();

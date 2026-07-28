@@ -15,6 +15,7 @@
     editingColumnId: null,
     pendingLogo: null,
     activeCategoryId: '',
+    collapsedColumns: new Set(),
     persistQueue: Promise.resolve(),
     syncTimer: null,
     syncInFlight: false,
@@ -26,7 +27,8 @@
     autoLockTimer: null,
     clipboardTimer: null,
     pendingImportBundle: null,
-    preImportBundle: null
+    preImportBundle: null,
+    pendingCsvImport: null
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -114,9 +116,18 @@
     biometricDisableBtn: $('#biometric-disable-btn'),
     autoLock: $('#setting-auto-lock'),
     clipboard: $('#setting-clipboard'),
+    boardColumns: $('#setting-board-columns'),
     exportBtn: $('#export-btn'),
     importBtn: $('#import-btn'),
     importInput: $('#import-input'),
+    csvImportColumn: $('#csv-import-column'),
+    csvImportBtn: $('#csv-import-btn'),
+    csvImportInput: $('#csv-import-input'),
+    importReviewDialog: $('#import-review-dialog'),
+    importSummary: $('#import-summary'),
+    importConflicts: $('#import-conflicts'),
+    importConflictsBulk: $('#import-conflicts-bulk'),
+    importApplyBtn: $('#import-apply-btn'),
     backupNow: $('#backup-now-btn'),
     signout: $('#signout-btn'),
     storageInfo: $('#storage-info'),
@@ -531,6 +542,8 @@
     document.body.dataset.accessMode = 'app';
     el.accessShell.hidden = true;
     el.appScreen.hidden = false;
+    state.collapsedColumns = new Set(state.vault.columns.map((c) => c.id));
+    applyBoardColumns();
     renderAll();
     resetAutoLockTimer();
     setSyncStatus(state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline'));
@@ -776,13 +789,15 @@
     for (const column of state.vault.columns) {
       const allColumnEntries = state.vault.entries.filter((entry) => entry.columnId === column.id);
       const visibleEntries = allColumnEntries.filter((entry) => KeyronVault.matches(entry, query, state.activeCategoryId, categories));
+      const filterActive = Boolean(query || state.activeCategoryId);
+      const isCollapsed = !filterActive && state.collapsedColumns.has(column.id);
       const section = document.createElement('section');
-      section.className = `vault-column${column.collapsed ? ' is-collapsed' : ''}`;
+      section.className = `vault-column${isCollapsed ? ' is-collapsed' : ''}`;
       section.dataset.columnId = column.id;
 
       const head = document.createElement('div');
       head.className = 'column-head';
-      const collapseBtn = columnAction(column.collapsed ? '▸' : '▾', 'column-collapse', column.collapsed ? 'Expandir gaveta' : 'Retrair gaveta');
+      const collapseBtn = columnAction(isCollapsed ? '▸' : '▾', 'column-collapse', isCollapsed ? 'Expandir gaveta' : 'Retrair gaveta');
       collapseBtn.classList.add('column-collapse-btn');
       const icon = document.createElement('span');
       icon.className = 'column-icon';
@@ -829,7 +844,7 @@
     }
 
     if (el.collapseAll) {
-      const anyExpanded = state.vault.columns.some((c) => !c.collapsed);
+      const anyExpanded = state.vault.columns.some((c) => !state.collapsedColumns.has(c.id));
       el.collapseAll.textContent = anyExpanded ? 'Retrair tudo' : 'Expandir tudo';
       el.collapseAll.hidden = state.vault.columns.length < 2;
     }
@@ -1049,15 +1064,21 @@
   async function handleColumnAction(columnId, action) {
     const column = state.vault.columns.find((item) => item.id === columnId);
     if (!column) return;
+    if (action === 'column-collapse') {
+      if (state.collapsedColumns.has(columnId)) state.collapsedColumns.delete(columnId);
+      else state.collapsedColumns.add(columnId);
+      renderBoard();
+      return;
+    }
     try {
       if (action === 'column-edit') return openColumnDialog(columnId);
-      if (action === 'column-collapse') KeyronVault.toggleColumnCollapsed(state.vault, columnId);
       if (action === 'column-left') KeyronVault.moveColumn(state.vault, columnId, -1);
       if (action === 'column-right') KeyronVault.moveColumn(state.vault, columnId, 1);
       if (action === 'column-delete') {
         const confirmed = await askConfirm({ title: 'Excluir gaveta', message: `Excluir a gaveta “${column.name}”? Ela precisa estar vazia.`, confirmLabel: 'Excluir', kind: 'danger', kicker: 'ORGANIZAÇÃO' });
         if (!confirmed) return;
         KeyronVault.deleteColumn(state.vault, columnId);
+        state.collapsedColumns.delete(columnId);
       }
       await persistVault({ reason: `column-${action}` });
     } catch (error) {
@@ -1116,14 +1137,21 @@
     renderCategoryDialog();
   }
 
+  function applyBoardColumns() {
+    const value = state.vault?.preferences?.boardColumns || 'auto';
+    el.board.style.setProperty('--board-columns', value === 'auto' ? 'auto-fit' : value);
+  }
+
   function renderSettings() {
     if (!state.vault || !state.bundle) return;
     el.autoLock.value = String(state.vault.preferences?.autoLockMinutes || 5);
     el.clipboard.value = String(state.vault.preferences?.clipboardClearSeconds || 20);
+    el.boardColumns.value = String(state.vault.preferences?.boardColumns || 'auto');
     const bytes = new Blob([JSON.stringify(state.bundle)]).size;
     el.storageInfo.textContent = `Cofre cifrado neste dispositivo: ${formatBytes(bytes)}`;
     renderActivity();
     refreshBiometricSettingsUI();
+    populateCsvImportColumn();
   }
 
   async function refreshBiometricSettingsUI() {
@@ -1189,8 +1217,10 @@
     state.vault.preferences = {
       ...state.vault.preferences,
       autoLockMinutes: Number(el.autoLock.value),
-      clipboardClearSeconds: Number(el.clipboard.value)
+      clipboardClearSeconds: Number(el.clipboard.value),
+      boardColumns: el.boardColumns.value
     };
+    applyBoardColumns();
     await persistVault({ render: false, reason: 'preferences-update' });
     resetAutoLockTimer();
     renderSettings();
@@ -1276,6 +1306,188 @@
       el.masterPassword.value = '';
       setBusy(false);
     }
+  }
+
+  // --- Importação inteligente de CSV (planilhas, outros gerenciadores) ---
+
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    const clean = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    for (let i = 0; i < clean.length; i += 1) {
+      const ch = clean[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (clean[i + 1] === '"') { field += '"'; i += 1; } else { inQuotes = false; }
+        } else {
+          field += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(field); field = '';
+      } else if (ch === '\n') {
+        row.push(field); field = '';
+        rows.push(row); row = [];
+      } else {
+        field += ch;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    if (!rows.length) return [];
+
+    const header = rows[0].map((h) => h.trim().toLowerCase());
+    return rows.slice(1)
+      .filter((cells) => cells.some((cell) => cell.trim() !== ''))
+      .map((cells) => {
+        const record = {};
+        header.forEach((key, index) => { record[key] = (cells[index] || '').trim(); });
+        return {
+          name: record.name || record.site || record.nome || '',
+          username: record.username || record.usuario || record['usuário'] || '',
+          email: record.email || record['e-mail'] || '',
+          password: record.password || record.senha || '',
+          url: record.url || record.site_url || '',
+          notes: record.notes || record.notas || record.observacoes || record['observações'] || ''
+        };
+      })
+      .filter((entry) => entry.name);
+  }
+
+  function populateCsvImportColumn() {
+    if (!el.csvImportColumn || !state.vault) return;
+    const previous = el.csvImportColumn.value;
+    el.csvImportColumn.replaceChildren();
+    state.vault.columns.forEach((column, index) => {
+      const option = document.createElement('option');
+      option.value = column.id;
+      option.textContent = `${column.icon} ${column.name}`;
+      option.selected = previous ? column.id === previous : index === state.vault.columns.length - 1;
+      el.csvImportColumn.appendChild(option);
+    });
+  }
+
+  async function handleCsvFile(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (!rows.length) {
+        toast('Não encontrei linhas válidas nesse CSV. Confira o cabeçalho esperado.', 'error', 5000);
+        return;
+      }
+      const existingByName = new Map(state.vault.entries.map((entry) => [entry.name.trim().toLocaleLowerCase('pt-BR'), entry]));
+      const toAdd = [];
+      const skipped = [];
+      const conflicts = [];
+      for (const row of rows) {
+        const key = row.name.trim().toLocaleLowerCase('pt-BR');
+        const existing = existingByName.get(key);
+        if (!existing) {
+          toAdd.push(row);
+        } else if ((existing.password || '') === (row.password || '')) {
+          skipped.push(row);
+        } else {
+          conflicts.push({ existing, incoming: row, resolution: 'keep' });
+        }
+      }
+      state.pendingCsvImport = { toAdd, skipped, conflicts, targetColumnId: el.csvImportColumn.value };
+      renderImportReview();
+      el.importReviewDialog.showModal();
+    } catch (error) {
+      console.error(error);
+      toast('Não foi possível ler esse arquivo CSV.', 'error');
+    } finally {
+      el.csvImportInput.value = '';
+    }
+  }
+
+  function renderImportReview() {
+    const plan = state.pendingCsvImport;
+    if (!plan) return;
+    const parts = [`${plan.toAdd.length} nova${plan.toAdd.length === 1 ? '' : 's'}`];
+    if (plan.skipped.length) parts.push(`${plan.skipped.length} idêntica${plan.skipped.length === 1 ? '' : 's'} ignorada${plan.skipped.length === 1 ? '' : 's'}`);
+    if (plan.conflicts.length) parts.push(`${plan.conflicts.length} com senha diferente`);
+    el.importSummary.textContent = `${parts.join(' · ')}.`;
+
+    el.importConflicts.replaceChildren();
+    el.importConflictsBulk.hidden = plan.conflicts.length < 2;
+
+    plan.conflicts.forEach((conflict, index) => {
+      const row = document.createElement('div');
+      row.className = 'import-conflict-row';
+      row.dataset.index = String(index);
+
+      const title = document.createElement('div');
+      title.className = 'import-conflict-title';
+      title.textContent = conflict.existing.name;
+
+      const reveal = document.createElement('button');
+      reveal.type = 'button';
+      reveal.className = 'text-button';
+      reveal.textContent = 'ver senhas';
+      reveal.addEventListener('click', () => {
+        const shown = passwords.dataset.revealed === '1';
+        passwords.dataset.revealed = shown ? '0' : '1';
+        passwords.querySelector('.import-pw--keep').textContent = shown ? '••••••••' : (conflict.existing.password || '(vazia)');
+        passwords.querySelector('.import-pw--incoming').textContent = shown ? '••••••••' : (conflict.incoming.password || '(vazia)');
+        reveal.textContent = shown ? 'ver senhas' : 'ocultar senhas';
+      });
+
+      const passwords = document.createElement('div');
+      passwords.className = 'import-conflict-passwords';
+      passwords.dataset.revealed = '0';
+      passwords.innerHTML = '<span>Atual: <code class="import-pw--keep">••••••••</code></span><span>Nova: <code class="import-pw--incoming">••••••••</code></span>';
+
+      const options = document.createElement('div');
+      options.className = 'import-conflict-options';
+      [['keep', 'Manter atual'], ['incoming', 'Usar a nova'], ['both', 'Manter as duas']].forEach(([value, label]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `pill-option${conflict.resolution === value ? ' is-active' : ''}`;
+        btn.textContent = label;
+        btn.dataset.value = value;
+        btn.addEventListener('click', () => {
+          conflict.resolution = value;
+          options.querySelectorAll('.pill-option').forEach((node) => node.classList.toggle('is-active', node.dataset.value === value));
+        });
+        options.appendChild(btn);
+      });
+
+      row.append(title, reveal, passwords, options);
+      el.importConflicts.appendChild(row);
+    });
+  }
+
+  function applyCsvImport() {
+    const plan = state.pendingCsvImport;
+    if (!plan) return;
+    const columnId = plan.targetColumnId && state.vault.columns.some((c) => c.id === plan.targetColumnId) ? plan.targetColumnId : state.vault.columns[state.vault.columns.length - 1].id;
+
+    let added = 0;
+    let replaced = 0;
+    for (const row of plan.toAdd) {
+      KeyronVault.addEntry(state.vault, { ...row, columnId });
+      added += 1;
+    }
+    for (const conflict of plan.conflicts) {
+      if (conflict.resolution === 'incoming') {
+        KeyronVault.updateEntry(state.vault, conflict.existing.id, { password: conflict.incoming.password, notes: conflict.incoming.notes || conflict.existing.notes });
+        replaced += 1;
+      } else if (conflict.resolution === 'both') {
+        KeyronVault.addEntry(state.vault, { ...conflict.incoming, columnId });
+        added += 1;
+      }
+      // 'keep' não faz nada — a credencial atual permanece intacta.
+    }
+
+    state.pendingCsvImport = null;
+    el.importReviewDialog.close();
+    persistVault({ reason: 'csv-import' }).then(() => {
+      toast(`Importação concluída: ${added} credencial${added === 1 ? '' : 'is'} adicionada${added === 1 ? '' : 's'}${replaced ? `, ${replaced} atualizada${replaced === 1 ? '' : 's'}` : ''}.`, 'success', 5500);
+    });
   }
 
   async function createDriveSnapshot() {
@@ -1468,10 +1680,11 @@
     el.addEntry.addEventListener('click', () => openEntryDialog());
     el.emptyAdd.addEventListener('click', () => openEntryDialog());
     el.addColumn.addEventListener('click', () => openColumnDialog());
-    el.collapseAll.addEventListener('click', async () => {
-      const anyExpanded = state.vault.columns.some((c) => !c.collapsed);
-      KeyronVault.setAllColumnsCollapsed(state.vault, anyExpanded);
-      await persistVault({ reason: 'column-collapse-all' }).catch(() => renderBoard());
+    el.collapseAll.addEventListener('click', () => {
+      const anyExpanded = state.vault.columns.some((c) => !state.collapsedColumns.has(c.id));
+      if (anyExpanded) state.vault.columns.forEach((c) => state.collapsedColumns.add(c.id));
+      else state.collapsedColumns.clear();
+      renderBoard();
     });
     el.manageCategories.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
     el.settingsBtn.addEventListener('click', () => { renderSettings(); el.settingsDialog.showModal(); });
@@ -1562,9 +1775,20 @@
 
     el.autoLock.addEventListener('change', savePreferences);
     el.clipboard.addEventListener('change', savePreferences);
+    el.boardColumns.addEventListener('change', savePreferences);
     el.exportBtn.addEventListener('click', exportBundle);
     el.importBtn.addEventListener('click', () => el.importInput.click());
     el.importInput.addEventListener('change', () => prepareImport(el.importInput.files?.[0]));
+    el.csvImportBtn.addEventListener('click', () => el.csvImportInput.click());
+    el.csvImportInput.addEventListener('change', () => handleCsvFile(el.csvImportInput.files?.[0]));
+    el.importApplyBtn.addEventListener('click', applyCsvImport);
+    el.importReviewDialog.addEventListener('close', () => { state.pendingCsvImport = null; });
+    el.importConflictsBulk.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-bulk]');
+      if (!button || !state.pendingCsvImport) return;
+      state.pendingCsvImport.conflicts.forEach((conflict) => { conflict.resolution = button.dataset.bulk; });
+      renderImportReview();
+    });
     el.backupNow.addEventListener('click', createDriveSnapshot);
     el.signout.addEventListener('click', () => lockVault({ signOut: true }).catch(() => null));
     el.biometricEnableBtn.addEventListener('click', enableBiometric);

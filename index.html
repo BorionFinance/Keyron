@@ -9,13 +9,13 @@
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=0.3.5" />
+  <link rel="manifest" href="manifest.json?v=0.3.6" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <link rel="stylesheet" href="css/style.css?v=0.3.5" />
+  <link rel="stylesheet" href="css/style.css?v=0.3.6" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -67,7 +67,7 @@
         <button type="button" id="back-google-btn" class="text-button">Trocar conta Google</button>
       </div>
     </section>
-    <span id="access-version" class="version-pill version-pill--fixed">v0.3.5</span>
+    <span id="access-version" class="version-pill version-pill--fixed">v0.3.6</span>
   </main>
 
   <section id="app-screen" class="app-screen" hidden>
@@ -240,6 +240,20 @@
     </div>
 
     <div class="settings-section">
+      <h3>Aparência do cofre</h3>
+      <div class="settings-grid">
+        <label>Gavetas por fileira<select id="setting-board-columns">
+          <option value="auto">Automático</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select></label>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Proteção automática</h3>
       <div class="settings-grid">
         <label>Bloquear após inatividade<select id="setting-auto-lock"><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="10">10 minutos</option><option value="15">15 minutos</option><option value="30">30 minutos</option></select></label>
@@ -249,13 +263,24 @@
 
     <div class="settings-section">
       <h3>Backups cifrados</h3>
-      <p>O arquivo exportado continua ilegível sem a senha mestra. A importação nunca aceita dados em texto puro.</p>
+      <p>O arquivo exportado continua ilegível sem a senha mestra. A importação de backup `.keyron` nunca aceita dados em texto puro.</p>
       <div class="button-row">
         <button type="button" id="export-btn" class="btn btn--ghost">Exportar .keyron</button>
         <button type="button" id="import-btn" class="btn btn--ghost">Importar .keyron</button>
         <input type="file" id="import-input" accept=".keyron,.json,application/json" hidden />
         <button type="button" id="backup-now-btn" class="btn btn--ghost">Criar snapshot no Drive</button>
       </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Importar de planilha (CSV)</h3>
+      <p>Para trazer senhas de uma planilha ou de outro gerenciador. O arquivo CSV é lido localmente no navegador e cada linha é cifrada assim que entra no cofre — nada é enviado para fora. Por segurança, apague o arquivo CSV do computador depois de importar, já que ele fica em texto puro até esse momento.</p>
+      <div class="button-row">
+        <select id="csv-import-column"></select>
+        <button type="button" id="csv-import-btn" class="btn btn--ghost">Escolher arquivo CSV</button>
+        <input type="file" id="csv-import-input" accept=".csv,text/csv" hidden />
+      </div>
+      <p class="fine-print">Cabeçalho esperado: <code>name,username,email,password,url,notes</code>. Uma credencial já existente com o mesmo nome e senha diferente vai aparecer para você decidir o que fazer antes de qualquer alteração.</p>
     </div>
 
     <div class="settings-section">
@@ -271,6 +296,28 @@
     <div class="settings-footer">
       <span id="storage-info">Cofre local cifrado</span>
       <button type="button" id="signout-btn" class="text-button text-button--danger">Sair da conta Google</button>
+    </div>
+  </dialog>
+
+  <dialog id="import-review-dialog" class="dialog dialog--import-review">
+    <div class="dialog-head">
+      <div><span class="dialog-kicker">IMPORTAÇÃO CSV</span><h2>Revisar importação</h2></div>
+      <button type="button" class="dialog-close" data-close-dialog="import-review-dialog" aria-label="Fechar">×</button>
+    </div>
+    <p id="import-summary" class="import-summary"></p>
+
+    <div id="import-conflicts" class="import-conflicts"></div>
+    <div id="import-conflicts-bulk" class="button-row" hidden>
+      <span class="fine-print" style="margin:0">Aplicar a todos os conflitos:</span>
+      <button type="button" class="text-button" data-bulk="keep">manter atual</button>
+      <button type="button" class="text-button" data-bulk="incoming">usar a nova</button>
+      <button type="button" class="text-button" data-bulk="both">manter as duas</button>
+    </div>
+
+    <div class="dialog-actions">
+      <span></span><span></span>
+      <button type="button" class="btn btn--ghost" data-close-dialog="import-review-dialog">Cancelar</button>
+      <button type="button" id="import-apply-btn" class="btn btn--primary">Concluir importação</button>
     </div>
   </dialog>
 
@@ -298,15 +345,15 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=0.3.5"></script>
-  <script src="js/crypto.js?v=0.3.5"></script>
-  <script src="js/storage.js?v=0.3.5"></script>
-  <script src="js/save-engine.js?v=0.3.5"></script>
-  <script src="js/vault.js?v=0.3.5"></script>
-  <script src="js/generator.js?v=0.3.5"></script>
-  <script src="js/drive.js?v=0.3.5"></script>
-  <script src="js/biometric.js?v=0.3.5"></script>
+  <script src="js/config.js?v=0.3.6"></script>
+  <script src="js/crypto.js?v=0.3.6"></script>
+  <script src="js/storage.js?v=0.3.6"></script>
+  <script src="js/save-engine.js?v=0.3.6"></script>
+  <script src="js/vault.js?v=0.3.6"></script>
+  <script src="js/generator.js?v=0.3.6"></script>
+  <script src="js/drive.js?v=0.3.6"></script>
+  <script src="js/biometric.js?v=0.3.6"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=0.3.5"></script>
+  <script src="js/app.js?v=0.3.6"></script>
 </body>
 </html>

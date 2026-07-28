@@ -1,4 +1,4 @@
-# Modelo de segurança — Keyron v0.2.1
+# Modelo de segurança — Keyron v0.3.0
 
 ## O que é protegido
 
@@ -19,3 +19,14 @@ Todo o conteúdo sensível do cofre é serializado e cifrado no navegador: nomes
 - Um dispositivo comprometido por malware, extensão maliciosa, keylogger ou acesso remoto pode capturar dados enquanto o cofre está aberto. Nenhum aplicativo web elimina esse risco.
 - A limpeza automática da área de transferência depende das permissões do navegador e não pode ser garantida em todos os sistemas.
 - Este projeto ainda não passou por auditoria criptográfica externa. Para uso comercial ou compartilhamento com muitos usuários, faça revisão independente, testes de invasão e política formal de resposta a incidentes.
+
+## Durabilidade sem texto puro
+
+O Save Engine mantém dois registros locais cifrados:
+
+- `current`: última versão cifrada disponível neste dispositivo;
+- `pending`: última versão cifrada ainda não confirmada no Google Drive.
+
+O marcador em `localStorage` contém somente metadados técnicos, como revisão, horário, identificador da operação e motivo genérico. Ele não contém nomes de serviços, usuários, senhas, notas, logos ou categorias.
+
+A confirmação remota só remove o registro pendente quando pertence ao mesmo cofre e não é mais antiga do que a revisão protegida localmente.

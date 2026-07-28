@@ -215,6 +215,8 @@ kbd { margin-left: auto; padding: 2px 6px; border: 1px solid var(--line); border
 .sync-chip:hover { border-color: var(--line-strong); }
 .sync-chip span { width: 7px; height: 7px; border-radius: 50%; background: #708198; }
 .sync-chip--syncing span { background: var(--yellow); animation: pulse 1s ease infinite; }
+.sync-chip--saving span, .sync-chip--pending span { background: var(--yellow); animation: pulse 1s ease infinite; }
+.sync-chip--saving, .sync-chip--pending { color: #f1d793; border-color: rgba(244,185,94,.22); }
 .sync-chip--synced { color: #a9d7c4; border-color: rgba(63,213,157,.18); }
 .sync-chip--synced span { background: var(--green); box-shadow: 0 0 10px rgba(63,213,157,.5); }
 .sync-chip--error { color: #ffc0c7; border-color: rgba(255,108,125,.22); }

@@ -1,4 +1,4 @@
-# Keyron v0.2.1 — configuração do Google Drive
+# Keyron v0.3.0 — configuração do Google Drive
 
 O Keyron é um aplicativo estático. Não existe servidor próprio recebendo suas senhas. O navegador cifra o cofre e só então envia o arquivo cifrado ao seu Google Drive.
 
@@ -21,7 +21,7 @@ Não coloque caminhos como `/index.html` nessa lista.
 
 ## 3. Client ID já configurado nesta versão
 
-A versão v0.2.1 já utiliza o mesmo Client ID OAuth da versão estável do Borion. Não é necessário editar `js/config.js`.
+A versão v0.3.0 já utiliza o mesmo Client ID OAuth da versão estável do Borion. Não é necessário editar `js/config.js`.
 
 O Keyron não utiliza nem precisa da API Key do Borion: a autenticação e o acesso restrito ao Drive funcionam apenas com o Client ID OAuth e o escopo `drive.file`.
 
@@ -69,4 +69,4 @@ https://keyron.borionfinance.com.br
 
 Sem caminho, sem barra final e sem `www`. O Google não aceita curingas para subdomínios. Por isso, autorizar `https://www.borionfinance.com.br` não autoriza automaticamente `https://keyron.borionfinance.com.br`.
 
-Depois de publicar esta versão, faça uma atualização forçada com `Ctrl + F5`. A v0.2.1 também corrige o cache antigo do PWA que podia continuar entregando o `config.js` com o valor de exemplo.
+Depois de publicar esta versão, faça uma atualização forçada com `Ctrl + F5`. A v0.3.0 também corrige o cache antigo do PWA que podia continuar entregando o `config.js` com o valor de exemplo.

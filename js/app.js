@@ -19,6 +19,10 @@
     syncTimer: null,
     syncInFlight: false,
     syncRequested: false,
+    syncRetryTimer: null,
+    syncRetryCount: 0,
+    lastRemoteRevision: 0,
+    otherTabWarningAt: 0,
     autoLockTimer: null,
     clipboardTimer: null,
     pendingImportBundle: null,
@@ -125,7 +129,7 @@
 
   function setSyncStatus(status, label) {
     el.syncChip.className = `sync-chip sync-chip--${status}`;
-    $('b', el.syncChip).textContent = label || ({ syncing: 'Salvando', synced: 'Sincronizado', offline: 'Local', error: 'Falha' }[status] || status);
+    $('b', el.syncChip).textContent = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', error: 'Pendente' }[status] || status);
   }
 
   function configured() {
@@ -235,6 +239,8 @@
     try {
       state.remoteInfo = await KeyronDrive.loadBundle();
       state.bundle = await chooseBundle(state.remoteInfo);
+      state.lastRemoteRevision = Number(state.remoteInfo?.bundle?.revision || 0);
+      KeyronSaveEngine.initialize(state.bundle);
       configureMasterStep(state.bundle ? 'unlock' : 'create');
       showMasterStep();
     } catch (error) {
@@ -345,17 +351,31 @@
       const created = await KeyronCrypto.createBundle(password, state.vault);
       state.key = created.key;
       state.bundle = created.bundle;
-      await KeyronStorage.saveCurrent(state.bundle);
-      setSyncStatus('syncing');
-      await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
-      setSyncStatus('synced');
+      KeyronSaveEngine.initialize(state.bundle);
+      state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-create');
+      state.needsInitialPush = true;
+
       openApplication();
-      toast('Cofre Keyron criado e cifrado no seu Drive.', 'success');
+      setSyncStatus(KeyronDrive.isConnected() ? 'syncing' : 'offline');
+      try {
+        await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
+        state.lastRemoteRevision = Number(state.bundle.revision || 0);
+        await KeyronSaveEngine.confirmRemote(state.bundle);
+        state.needsInitialPush = false;
+        setSyncStatus('synced');
+        toast('Cofre Keyron criado e cifrado no seu Drive.', 'success');
+      } catch (driveError) {
+        console.error(driveError);
+        state.needsInitialPush = true;
+        setSyncStatus('error');
+        scheduleSyncRetry();
+        toast('O cofre foi criado e protegido neste dispositivo. O envio ao Drive será tentado novamente.', 'warning', 5500);
+      }
     } catch (error) {
       console.error(error);
       state.key = null;
       state.vault = null;
-      el.masterError.textContent = 'Não foi possível criar o cofre. Confira o acesso ao Drive e tente novamente.';
+      el.masterError.textContent = 'Não foi possível criar e proteger o cofre neste dispositivo.';
       setSyncStatus('error');
     } finally {
       el.masterPassword.value = '';
@@ -385,7 +405,7 @@
         state.key = migrated.key;
         state.bundle = migrated.bundle;
         state.vault = normalized;
-        await KeyronStorage.saveCurrent(state.bundle);
+        state.bundle = await KeyronSaveEngine.stageBundle(state.bundle, 'vault-migration');
         state.needsInitialPush = true;
         toast('Cofre antigo migrado para a estrutura Keyron sem perder credenciais.', 'success', 5000);
       } else {
@@ -393,6 +413,7 @@
         state.vault = normalized;
       }
 
+      KeyronSaveEngine.initialize(state.bundle);
       state.failedAttempts = 0;
       el.masterError.textContent = '';
       openApplication();
@@ -414,14 +435,18 @@
     el.appScreen.hidden = false;
     renderAll();
     resetAutoLockTimer();
-    setSyncStatus(KeyronDrive.isConnected() ? 'synced' : 'offline');
+    setSyncStatus(state.needsInitialPush ? (KeyronDrive.isConnected() ? 'pending' : 'offline') : (KeyronDrive.isConnected() ? 'synced' : 'offline'));
     setTimeout(() => el.search.focus(), 100);
   }
 
-  function lockVault({ signOut = false } = {}) {
+  async function lockVault({ signOut = false } = {}) {
     clearTimeout(state.autoLockTimer);
     clearTimeout(state.clipboardTimer);
     closeAllDialogs();
+    await KeyronSaveEngine.flush(1200).catch(() => null);
+    if (state.needsInitialPush && KeyronDrive.isConnected()) {
+      await Promise.race([syncToDrive(), new Promise((resolve) => setTimeout(resolve, 1400))]).catch(() => null);
+    }
     state.key = null;
     state.vault = null;
     state.editingEntryId = null;
@@ -449,27 +474,50 @@
     if (!state.key || !state.vault) return;
     const minutes = Math.max(1, Number(state.vault.preferences?.autoLockMinutes || 5));
     state.autoLockTimer = setTimeout(() => {
-      lockVault();
+      lockVault().catch(() => null);
       toast('O Keyron foi bloqueado por inatividade.', 'info');
     }, minutes * 60 * 1000);
   }
 
-  async function persistVault({ render = true } = {}) {
+  async function persistVault({ render = true, reason = 'data-change' } = {}) {
     if (!state.key || !state.vault || !state.bundle) throw new Error('VAULT_LOCKED');
+
+    // A interface responde primeiro; a durabilidade local cifrada acontece logo em seguida.
+    // O Save Engine consolida rajadas de mudanças e evita cifrar/gravar estados intermediários inúteis.
     const snapshot = structuredClone(state.vault);
-    state.persistQueue = state.persistQueue.then(async () => {
-      state.bundle = await KeyronCrypto.updateBundle(state.key, state.bundle, snapshot);
-      await KeyronStorage.saveCurrent(state.bundle);
-      state.needsInitialPush = true;
-      scheduleDriveSync();
-    });
-    await state.persistQueue;
     if (render) renderAll();
+    setSyncStatus('saving');
+
+    const result = await KeyronSaveEngine.commit({
+      key: state.key,
+      bundle: state.bundle,
+      vault: snapshot,
+      reason,
+      onLocalSaved: (bundle) => {
+        state.bundle = bundle;
+        state.needsInitialPush = true;
+      }
+    });
+
+    state.bundle = result.bundle;
+    state.needsInitialPush = true;
+    setSyncStatus(KeyronDrive.isConnected() ? 'pending' : 'offline');
+    scheduleDriveSync();
+    return result;
   }
 
-  function scheduleDriveSync(delay = 420) {
+  function scheduleDriveSync(delay = 160) {
     clearTimeout(state.syncTimer);
-    state.syncTimer = setTimeout(syncToDrive, delay);
+    state.syncTimer = setTimeout(syncToDrive, Math.max(0, Number(delay) || 0));
+  }
+
+  function scheduleSyncRetry() {
+    clearTimeout(state.syncRetryTimer);
+    state.syncRetryCount += 1;
+    const delay = Math.min(60000, 1000 * (2 ** Math.min(state.syncRetryCount - 1, 6)));
+    state.syncRetryTimer = setTimeout(() => {
+      if (navigator.onLine !== false && state.needsInitialPush) syncToDrive();
+    }, delay);
   }
 
   async function reconnectOrSyncDrive() {
@@ -496,6 +544,7 @@
               await KeyronStorage.saveRecovery(state.bundle).catch(() => null);
               state.bundle = remote.bundle;
               await KeyronStorage.saveCurrent(state.bundle);
+              KeyronSaveEngine.initialize(state.bundle);
               state.key = null;
               state.vault = null;
               configureMasterStep('unlock');
@@ -526,7 +575,7 @@
 
   async function syncToDrive() {
     if (!state.bundle || !state.googleVerified || !KeyronDrive.isConnected()) {
-      setSyncStatus('offline');
+      setSyncStatus(state.needsInitialPush ? 'offline' : 'synced');
       return;
     }
     if (state.syncInFlight) {
@@ -535,11 +584,23 @@
     }
 
     state.syncInFlight = true;
-    const target = state.bundle;
     setSyncStatus('syncing');
     try {
-      await KeyronDrive.saveBundle(target);
-      if (state.bundle === target) {
+      // Garante que o último clique já virou bundle cifrado local antes de escolher o alvo remoto.
+      await KeyronSaveEngine.flush(2200);
+      const target = state.bundle;
+      if (!target) return;
+
+      await KeyronSaveEngine.withDriveLock(async () => {
+        await KeyronDrive.saveBundle(target);
+      });
+
+      state.lastRemoteRevision = Math.max(state.lastRemoteRevision, Number(target.revision || 0));
+      state.syncRetryCount = 0;
+      clearTimeout(state.syncRetryTimer);
+      await KeyronSaveEngine.confirmRemote(target);
+
+      if (state.bundle === target || state.bundle?.operationId === target.operationId) {
         state.needsInitialPush = false;
         setSyncStatus('synced');
       } else {
@@ -547,13 +608,17 @@
       }
     } catch (error) {
       console.error(error);
+      state.needsInitialPush = true;
       setSyncStatus('error');
-      toast('O cofre ficou salvo e cifrado neste dispositivo, mas o Drive não confirmou a sincronização.', 'error', 5000);
+      scheduleSyncRetry();
+      if (state.syncRetryCount <= 1) {
+        toast('A alteração já está protegida e cifrada neste dispositivo. O Keyron tentará confirmar no Drive novamente.', 'warning', 5200);
+      }
     } finally {
       state.syncInFlight = false;
       if (state.syncRequested) {
         state.syncRequested = false;
-        scheduleDriveSync(100);
+        scheduleDriveSync(80);
       }
     }
   }
@@ -824,7 +889,7 @@
       if (state.editingEntryId) KeyronVault.updateEntry(state.vault, state.editingEntryId, data);
       else KeyronVault.addEntry(state.vault, data);
       el.entryDialog.close();
-      await persistVault();
+      await persistVault({ reason: state.editingEntryId ? 'entry-update' : 'entry-create' });
       toast(state.editingEntryId ? 'Credencial atualizada.' : 'Credencial adicionada.', 'success');
     } catch (error) {
       console.error(error);
@@ -838,7 +903,7 @@
     if (!entry || !confirm(`Excluir definitivamente “${entry.name}”?`)) return;
     KeyronVault.deleteEntry(state.vault, entry.id);
     el.entryDialog.close();
-    await persistVault();
+    await persistVault({ reason: 'entry-delete' });
     toast('Credencial excluída.', 'success');
   }
 
@@ -858,7 +923,7 @@
       if (state.editingColumnId) KeyronVault.updateColumn(state.vault, state.editingColumnId, el.columnName.value, el.columnIcon.value);
       else KeyronVault.addColumn(state.vault, el.columnName.value, el.columnIcon.value);
       el.columnDialog.close();
-      await persistVault();
+      await persistVault({ reason: state.editingColumnId ? 'column-update' : 'column-create' });
       toast('Gaveta salva.', 'success');
     } catch (error) {
       const messages = { COLUMN_DUPLICATE: 'Já existe uma gaveta com esse nome.', COLUMN_NAME_REQUIRED: 'Informe o nome da gaveta.' };
@@ -877,7 +942,7 @@
         if (!confirm(`Excluir a gaveta “${column.name}”? Ela precisa estar vazia.`)) return;
         KeyronVault.deleteColumn(state.vault, columnId);
       }
-      await persistVault();
+      await persistVault({ reason: `column-${action}` });
     } catch (error) {
       const messages = { COLUMN_NOT_EMPTY: 'Mova as credenciais para outra gaveta antes de excluir.', LAST_COLUMN: 'O cofre precisa ter pelo menos uma gaveta.' };
       toast(messages[error.message] || 'Não foi possível alterar a gaveta.', 'error');
@@ -907,7 +972,7 @@
     try {
       const category = KeyronVault.addCategory(state.vault, el.categoryName.value, el.categoryColor.value);
       el.categoryName.value = '';
-      await persistVault({ render: false });
+      await persistVault({ render: false, reason: 'category-create' });
       renderAll();
       renderCategoryDialog();
       if (el.entryDialog.open) {
@@ -928,7 +993,7 @@
     if (!confirm(text)) return;
     KeyronVault.deleteCategory(state.vault, categoryId);
     if (state.activeCategoryId === categoryId) state.activeCategoryId = '';
-    await persistVault({ render: false });
+    await persistVault({ render: false, reason: 'category-delete' });
     renderAll();
     renderCategoryDialog();
   }
@@ -947,7 +1012,7 @@
       autoLockMinutes: Number(el.autoLock.value),
       clipboardClearSeconds: Number(el.clipboard.value)
     };
-    await persistVault({ render: false });
+    await persistVault({ render: false, reason: 'preferences-update' });
     resetAutoLockTimer();
     renderSettings();
   }
@@ -1008,10 +1073,22 @@
       state.vault = vault;
       state.pendingImportBundle = null;
       state.preImportBundle = null;
-      await KeyronStorage.saveCurrent(bundle);
-      await KeyronDrive.saveBundle(bundle, { automaticSnapshot: false });
+      KeyronSaveEngine.initialize(bundle);
+      state.bundle = await KeyronSaveEngine.stageBundle(bundle, 'vault-import');
+      state.needsInitialPush = true;
       openApplication();
-      toast('Backup verificado e importado com sucesso.', 'success', 5000);
+      try {
+        await KeyronDrive.saveBundle(state.bundle, { automaticSnapshot: false });
+        await KeyronSaveEngine.confirmRemote(state.bundle);
+        state.needsInitialPush = false;
+        setSyncStatus('synced');
+        toast('Backup verificado, importado e confirmado no Drive.', 'success', 5000);
+      } catch (driveError) {
+        console.error(driveError);
+        setSyncStatus('error');
+        scheduleSyncRetry();
+        toast('Backup verificado e importado neste dispositivo. O Drive será atualizado novamente assim que responder.', 'warning', 6000);
+      }
     } catch (error) {
       console.error(error);
       el.masterError.textContent = 'A senha não abriu este backup. O cofre atual não foi substituído.';
@@ -1183,7 +1260,7 @@
     el.manageCategories.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
     el.settingsBtn.addEventListener('click', () => { renderSettings(); el.settingsDialog.showModal(); });
     el.syncChip.addEventListener('click', reconnectOrSyncDrive);
-    el.lockBtn.addEventListener('click', () => lockVault());
+    el.lockBtn.addEventListener('click', () => lockVault().catch(() => null));
     el.search.addEventListener('input', renderBoard);
     el.filterStrip.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-category-id]');
@@ -1227,7 +1304,7 @@
       const entry = state.vault.entries.find((item) => item.id === entryId);
       if (!entry || entry.columnId === column.dataset.columnId) return;
       KeyronVault.moveEntry(state.vault, entryId, column.dataset.columnId);
-      await persistVault();
+      await persistVault({ reason: 'entry-move' });
       toast(`“${entry.name}” foi movida para outra gaveta.`, 'success');
     });
 
@@ -1273,7 +1350,7 @@
     el.importBtn.addEventListener('click', () => el.importInput.click());
     el.importInput.addEventListener('change', () => prepareImport(el.importInput.files?.[0]));
     el.backupNow.addEventListener('click', createDriveSnapshot);
-    el.signout.addEventListener('click', () => lockVault({ signOut: true }));
+    el.signout.addEventListener('click', () => lockVault({ signOut: true }).catch(() => null));
 
     $$('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog)?.close()));
 
@@ -1291,13 +1368,38 @@
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && state.needsInitialPush) syncToDrive();
+      if (!document.hidden) return;
+      KeyronSaveEngine.flush(900).catch(() => null);
+      if (state.needsInitialPush) syncToDrive();
+    });
+
+    window.addEventListener('online', () => {
+      if (state.needsInitialPush) scheduleDriveSync(50);
+    });
+    window.addEventListener('offline', () => {
+      if (state.needsInitialPush) setSyncStatus('offline');
+    });
+    window.addEventListener('pagehide', () => {
+      KeyronSaveEngine.flush(700).catch(() => null);
     });
   }
 
   async function init() {
     bindEvents();
-    state.bundle = await KeyronStorage.loadCurrent();
+    const stored = await KeyronStorage.loadCurrent();
+    const pending = await KeyronSaveEngine.loadPendingBundle();
+    state.bundle = pending && parseTime(pending) >= parseTime(stored) ? pending : stored;
+    if (pending && state.bundle === pending) {
+      await KeyronStorage.saveCurrent(pending).catch(() => null);
+      state.needsInitialPush = true;
+    }
+    KeyronSaveEngine.initialize(state.bundle);
+    KeyronSaveEngine.onEvent((event) => {
+      if (event.type === 'other-tab' && state.key && Date.now() - state.otherTabWarningAt > 10000) {
+        state.otherTabWarningAt = Date.now();
+        toast('Outra aba do Keyron também está aberta. O salvamento remoto será serializado para reduzir conflitos.', 'warning', 5000);
+      }
+    });
     showGoogleStep();
     if (!configured()) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 

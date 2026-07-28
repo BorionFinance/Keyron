@@ -1,6 +1,8 @@
-// Keyron Drive — transporta apenas o bundle já cifrado.
-// O escopo drive.file limita o app aos arquivos criados/abertos por ele.
+// Keyron Drive — transporta somente bundles já cifrados.
+// O escopo drive.file limita o app aos arquivos criados/abertos pelo próprio Keyron.
 const KeyronDrive = (() => {
+  'use strict';
+
   const API = 'https://www.googleapis.com/drive/v3';
   const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
   const SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
@@ -8,6 +10,7 @@ const KeyronDrive = (() => {
   const BACKUP_FOLDER_NAME = 'Backups';
   const VAULT_NAME = 'vault.keyron';
   const FOLDER_MIME = 'application/vnd.google-apps.folder';
+  const SNAPSHOT_CACHE_KEY = 'keyron_last_snapshot_at_v3';
 
   let tokenClient = null;
   let accessToken = null;
@@ -16,6 +19,7 @@ const KeyronDrive = (() => {
   let cachedStructure = null;
   let cachedRemoteBundle = null;
   let currentUser = null;
+  let snapshotInFlight = null;
 
   function isConnected() {
     return Boolean(accessToken) && Date.now() < tokenExpiresAt;
@@ -34,9 +38,7 @@ const KeyronDrive = (() => {
         }
         accessToken = response.access_token;
         tokenExpiresAt = Date.now() + (Number(response.expires_in || 3600) * 1000) - 60000;
-        fetchCurrentUser()
-          .catch(() => null)
-          .finally(() => callbacks.ready?.(currentUser));
+        fetchCurrentUser().catch(() => null).finally(() => callbacks.ready?.(currentUser));
       },
       error_callback: (error) => callbacks.error?.(error?.type || 'Falha na janela de autenticação')
     });
@@ -65,9 +67,7 @@ const KeyronDrive = (() => {
   }
 
   function disconnect() {
-    if (accessToken && window.google?.accounts?.oauth2) {
-      google.accounts.oauth2.revoke(accessToken, () => {});
-    }
+    if (accessToken && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(accessToken, () => {});
     accessToken = null;
     tokenExpiresAt = 0;
     cachedStructure = null;
@@ -75,20 +75,47 @@ const KeyronDrive = (() => {
     currentUser = null;
   }
 
-  async function apiFetch(url, options = {}) {
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function apiFetch(url, options = {}, policy = {}) {
     if (!isConnected()) throw new Error('DRIVE_NOT_CONNECTED');
-    const headers = new Headers(options.headers || {});
-    headers.set('Authorization', `Bearer ${accessToken}`);
-    const response = await fetch(url, { ...options, headers });
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      if (response.status === 401) {
-        accessToken = null;
-        tokenExpiresAt = 0;
+    const method = String(options.method || 'GET').toUpperCase();
+    const idempotent = policy.idempotent ?? ['GET', 'HEAD', 'PATCH', 'PUT', 'DELETE'].includes(method);
+    const maxAttempts = idempotent ? Number(policy.attempts || 3) : 1;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Number(policy.timeoutMs || 20000));
+      try {
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${accessToken}`);
+        const response = await fetch(url, { ...options, headers, signal: options.signal || controller.signal });
+        if (response.ok) return response;
+
+        const body = await response.text().catch(() => '');
+        if (response.status === 401) {
+          accessToken = null;
+          tokenExpiresAt = 0;
+        }
+        const error = new Error(`DRIVE_${response.status}:${body.slice(0, 500)}`);
+        error.status = response.status;
+        error.code = response.status === 412 ? 'DRIVE_CONFLICT' : `DRIVE_${response.status}`;
+        const transient = [408, 429, 500, 502, 503, 504].includes(response.status);
+        if (!transient || attempt >= maxAttempts) throw error;
+        lastError = error;
+      } catch (error) {
+        const transient = error?.name === 'AbortError' || /network|failed to fetch/i.test(String(error?.message || ''));
+        if (!transient || attempt >= maxAttempts) throw error;
+        lastError = error;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      throw new Error(`DRIVE_${response.status}:${body.slice(0, 500)}`);
+      await sleep([350, 900, 2200][attempt - 1] || 3000);
     }
-    return response;
+    throw lastError || new Error('DRIVE_REQUEST_FAILED');
   }
 
   function escapeQuery(value) {
@@ -106,7 +133,7 @@ const KeyronDrive = (() => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
       body: JSON.stringify(metadata)
-    });
+    }, { idempotent: false });
     return response.json();
   }
 
@@ -120,7 +147,7 @@ const KeyronDrive = (() => {
       method: 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
       body
-    });
+    }, { idempotent: false, timeoutMs: 30000 });
     return response.json();
   }
 
@@ -129,7 +156,7 @@ const KeyronDrive = (() => {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: JSON.stringify(content)
-    });
+    }, { attempts: 3, timeoutMs: 30000 });
     return response.json();
   }
 
@@ -153,7 +180,7 @@ const KeyronDrive = (() => {
       name,
       mimeType: FOLDER_MIME,
       parents: parentId ? [parentId] : undefined,
-      appProperties: { keyronRole: role, keyronVersion: '2' }
+      appProperties: { keyronRole: role, keyronVersion: '3' }
     });
   }
 
@@ -206,7 +233,7 @@ const KeyronDrive = (() => {
       name: VAULT_NAME,
       mimeType: 'application/octet-stream',
       parents: [structure.root.id],
-      appProperties: { keyronRole: 'vault', keyronVersion: '2' }
+      appProperties: { keyronRole: 'vault', keyronVersion: '3' }
     }, bundle);
     structure.vault = file;
     cachedRemoteBundle = bundle;
@@ -231,39 +258,61 @@ const KeyronDrive = (() => {
     await Promise.all(excess.map((file) => apiFetch(`${API}/files/${encodeURIComponent(file.id)}`, { method: 'DELETE' }).catch(() => null)));
   }
 
+  function readLastSnapshotAt() {
+    try { return Number(localStorage.getItem(SNAPSHOT_CACHE_KEY) || 0); } catch { return 0; }
+  }
+
+  function writeLastSnapshotAt(value = Date.now()) {
+    try { localStorage.setItem(SNAPSHOT_CACHE_KEY, String(value)); } catch { /* ignore */ }
+  }
+
   async function createSnapshot(bundle = cachedRemoteBundle) {
     if (!bundle) throw new Error('NO_BUNDLE_TO_BACKUP');
-    const structure = await ensureStructure();
-    const name = `${KeyronCrypto.randomId()}.keyron`;
-    const file = await createJsonFile({
-      name,
-      mimeType: 'application/octet-stream',
-      parents: [structure.backups.id],
-      appProperties: { keyronRole: 'backup', keyronVersion: '2' }
-    }, bundle);
-    await trimBackups();
-    return file;
+    if (snapshotInFlight) return snapshotInFlight;
+    snapshotInFlight = (async () => {
+      const structure = await ensureStructure();
+      const name = `${new Date().toISOString().replace(/[:.]/g, '-')}_${KeyronCrypto.randomId().slice(0, 8)}.keyron`;
+      const file = await createJsonFile({
+        name,
+        mimeType: 'application/octet-stream',
+        parents: [structure.backups.id],
+        appProperties: { keyronRole: 'backup', keyronVersion: '3' }
+      }, bundle);
+      writeLastSnapshotAt();
+      await trimBackups().catch(() => null);
+      return file;
+    })();
+    try { return await snapshotInFlight; } finally { snapshotInFlight = null; }
   }
 
   async function shouldCreateAutomaticSnapshot() {
+    const interval = Number(KeyronConfig.AUTO_SNAPSHOT_HOURS || 12) * 60 * 60 * 1000;
+    const cachedAt = readLastSnapshotAt();
+    if (cachedAt && Date.now() - cachedAt < interval) return false;
     const backups = await listBackups();
     if (!backups.length) return true;
     const newest = new Date(backups[0].createdTime || backups[0].modifiedTime).getTime();
-    return !Number.isFinite(newest) || Date.now() - newest > 12 * 60 * 60 * 1000;
+    if (Number.isFinite(newest)) writeLastSnapshotAt(newest);
+    return !Number.isFinite(newest) || Date.now() - newest > interval;
   }
 
   async function saveBundle(bundle, { automaticSnapshot = true } = {}) {
     const structure = await ensureStructure();
-    if (structure.vault) {
-      if (automaticSnapshot && cachedRemoteBundle && await shouldCreateAutomaticSnapshot().catch(() => false)) {
-        await createSnapshot(cachedRemoteBundle).catch(() => null);
-      }
-      const result = await updateJsonFile(structure.vault.id, bundle);
-      structure.vault = { ...structure.vault, ...result };
-      cachedRemoteBundle = bundle;
-      return result;
+    if (!structure.vault) return createVaultFile(bundle);
+
+    const previousRemote = cachedRemoteBundle;
+    const result = await updateJsonFile(structure.vault.id, bundle);
+    structure.vault = { ...structure.vault, ...result };
+    cachedRemoteBundle = bundle;
+
+    // O snapshot da versão anterior é feito depois da confirmação do current,
+    // em segundo plano, para não atrasar o salvamento principal.
+    if (automaticSnapshot && previousRemote) {
+      shouldCreateAutomaticSnapshot()
+        .then((needed) => needed && createSnapshot(previousRemote))
+        .catch(() => null);
     }
-    return createVaultFile(bundle);
+    return result;
   }
 
   return Object.freeze({

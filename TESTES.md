@@ -1,41 +1,52 @@
-# Relatório de testes — Keyron v0.2.1
+# Relatório de testes — Keyron v0.3.0
 
 Data da revisão: 27/07/2026
 
-## Testes executados
+## Testes executados nesta versão
 
-- Validação de sintaxe de todos os arquivos JavaScript com `node --check`.
-- Validação do `manifest.json`.
-- Verificação de referências locais, IDs duplicados e elementos usados pelo `app.js`.
-- Teste real do núcleo Web Crypto:
-  - criação de bundle Keyron;
-  - PBKDF2-HMAC-SHA-256 com 600.000 iterações;
-  - abertura com senha correta;
-  - rejeição de senha incorreta;
-  - rejeição de ciphertext adulterado;
-  - atualização e nova abertura do cofre;
-  - migração de bundle legado Borion v1 para Keyron v2.
-- Teste de interface em Chromium com Google OAuth e Drive simulados:
-  - verificação Google;
-  - criação de senha mestra;
-  - criação do cofre;
-  - criação e exclusão lógica de categorias;
-  - criação de nova gaveta;
-  - cadastro de credencial;
-  - upload e redução de logo;
-  - movimentação por arrastar e soltar;
-  - bloqueio e desbloqueio;
-  - persistência da credencial após reabertura;
-  - revisão responsiva em desktop e mobile.
+### Validação estática
 
-## Correções encontradas durante os testes
+- Sintaxe de todos os arquivos JavaScript validada com `node --check`.
+- `manifest.json` validado como JSON.
+- Referências locais do HTML conferidas.
+- IDs do HTML verificados, sem duplicações.
+- Ordem dos scripts verificada: criptografia → armazenamento → Save Engine → cofre → Drive → aplicativo.
+- Cache do Service Worker atualizado para `keyron-shell-v0.3.0`.
 
-1. Gavetas vazias não apareciam enquanto o cofre ainda não tinha credenciais. Corrigido.
-2. Um site digitado como `netflix.com` era bloqueado pela validação HTML antes da normalização. Corrigido; o app acrescenta `https://` com validação segura.
-3. O layout mobile foi alterado para gavetas horizontais com gesto de arrastar, evitando uma página vertical excessivamente longa.
-4. O cache cifrado foi movido para IndexedDB para suportar logos sem depender do limite pequeno do localStorage.
-5. O botão de status de sincronização agora permite reconectar o Drive após expiração do token e compara a versão remota antes de enviar a local.
+### Núcleo criptográfico e Save Engine
 
-## Limite do ambiente de teste
+Foi executado um teste automatizado em Node.js com Web Crypto real e uma implementação controlada de IndexedDB. Foram validados:
 
-A integração foi testada contra uma simulação fiel das chamadas esperadas da Google Drive API. Não foi possível executar OAuth real sem o Client ID do projeto e a origem publicada. Depois de configurar `js/config.js`, faça um teste final no domínio real usando sua própria conta Google antes de colocar senhas verdadeiras no cofre.
+- criação e abertura de bundle AES-256-GCM;
+- derivação PBKDF2-HMAC-SHA-256 com 600.000 iterações;
+- gravação de WAL contendo somente bundle cifrado;
+- recuperação do bundle pendente;
+- consolidação de alterações rápidas no modelo `latest-wins`;
+- aumento monotônico de revisão;
+- rejeição de confirmação remota antiga quando existe revisão local mais nova;
+- limpeza do WAL após confirmação da operação correta;
+- ausência de nomes, senhas e conteúdo do cofre no JSON enviado ao Drive.
+
+Resultado do teste automatizado: **aprovado**.
+
+## Comportamentos revisados no código
+
+- Criação do cofre continua disponível se o Drive falhar depois da proteção local.
+- Importação confirmada por senha não é desfeita quando apenas o upload remoto falha.
+- Bloqueio aguarda brevemente o salvamento local e tenta concluir a sincronização pendente.
+- Falhas transitórias 408, 429 e 5xx recebem novas tentativas automáticas.
+- O teste de necessidade de snapshot é armazenado em cache, evitando uma listagem de backups a cada salvamento.
+- O snapshot automático usa a versão remota anterior e roda depois do `PATCH` principal.
+
+## Limite desta revisão
+
+O ambiente desta análise não permitiu abrir uma origem HTTP/HTTPS no Chromium por política administrativa. Portanto, o OAuth real e a interface completa não foram executados contra a sua conta Google nesta etapa.
+
+Antes de inserir senhas verdadeiras, publique no domínio autorizado e valide:
+
+1. entrada com a conta Google correta;
+2. criação e reabertura do cofre;
+3. cadastro de uma credencial de teste;
+4. fechamento imediato da aba e nova abertura;
+5. confirmação de `Sincronizado`;
+6. presença de `Keyron/vault.keyron` e dos snapshots no Drive.

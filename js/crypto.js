@@ -107,6 +107,8 @@ const KeyronCrypto = (() => {
       cipher: { name: 'AES-GCM', length: 256, tagLength: 128 },
       check: await encrypt(key, { marker: 'KEYRON_OK', vaultId }, `check:${vaultId}`),
       payload: await encrypt(key, vault, `payload:${vaultId}`),
+      revision: 1,
+      operationId: randomId(),
       updatedAt: now
     };
     return { key, bundle };

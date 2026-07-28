@@ -106,7 +106,13 @@
     importInput: $('#import-input'),
     backupNow: $('#backup-now-btn'),
     signout: $('#signout-btn'),
-    storageInfo: $('#storage-info')
+    storageInfo: $('#storage-info'),
+    confirmDialog: $('#confirm-dialog'),
+    confirmKicker: $('#confirm-kicker'),
+    confirmTitle: $('#confirm-title'),
+    confirmMessage: $('#confirm-message'),
+    confirmCancel: $('#confirm-cancel'),
+    confirmOk: $('#confirm-ok')
   };
 
   function toast(message, kind = 'info', duration = 3400) {
@@ -130,6 +136,35 @@
   function setSyncStatus(status, label) {
     el.syncChip.className = `sync-chip sync-chip--${status}`;
     $('b', el.syncChip).textContent = label || ({ saving: 'Protegendo', pending: 'Salvo local', syncing: 'Sincronizando', synced: 'Sincronizado', offline: 'Somente local', error: 'Pendente' }[status] || status);
+  }
+
+  function askConfirm({ title = 'Confirmar ação', message = 'Deseja continuar?', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', kind = 'danger', kicker = 'CONFIRMAR AÇÃO' } = {}) {
+    return new Promise((resolve) => {
+      el.confirmKicker.textContent = kicker;
+      el.confirmTitle.textContent = title;
+      el.confirmMessage.textContent = message;
+      el.confirmCancel.textContent = cancelLabel;
+      el.confirmOk.textContent = confirmLabel;
+      el.confirmOk.className = `btn ${kind === 'danger' ? 'btn--danger' : 'btn--primary'}`;
+
+      const cleanup = (value) => {
+        el.confirmCancel.removeEventListener('click', onCancel);
+        el.confirmOk.removeEventListener('click', onOk);
+        el.confirmDialog.removeEventListener('cancel', onCancel);
+        el.confirmDialog.removeEventListener('close', onClose);
+        if (el.confirmDialog.open) el.confirmDialog.close();
+        resolve(value);
+      };
+      const onCancel = (event) => { if (event) event.preventDefault(); cleanup(false); };
+      const onOk = (event) => { if (event) event.preventDefault(); cleanup(true); };
+      const onClose = () => cleanup(false);
+
+      el.confirmCancel.addEventListener('click', onCancel, { once: true });
+      el.confirmOk.addEventListener('click', onOk, { once: true });
+      el.confirmDialog.addEventListener('cancel', onCancel, { once: true });
+      el.confirmDialog.addEventListener('close', onClose, { once: true });
+      el.confirmDialog.showModal();
+    });
   }
 
   function configured() {
@@ -260,6 +295,8 @@
   }
 
   function showGoogleStep() {
+    document.body.dataset.screen = 'access';
+    document.body.dataset.accessMode = 'google';
     el.appScreen.hidden = true;
     el.accessShell.hidden = false;
     el.googleStep.hidden = false;
@@ -267,6 +304,7 @@
   }
 
   function showMasterStep() {
+    document.body.dataset.screen = 'access';
     el.appScreen.hidden = true;
     el.accessShell.hidden = false;
     el.googleStep.hidden = true;
@@ -276,12 +314,14 @@
 
   function configureMasterStep(mode) {
     state.accessMode = mode;
+    document.body.dataset.accessMode = mode;
     state.failedAttempts = 0;
     el.masterPassword.value = '';
     el.masterConfirm.value = '';
     el.masterError.textContent = '';
     el.masterPassword.type = 'password';
     el.masterConfirm.type = 'password';
+    el.masterPassword.placeholder = mode === 'unlock' ? 'Digite sua senha mestra' : '';
 
     if (mode === 'create') {
       el.masterTitle.textContent = 'Criar senha mestra';
@@ -299,7 +339,7 @@
       el.backGoogle.textContent = 'Cancelar importação';
     } else {
       el.masterTitle.textContent = 'Desbloquear cofre';
-      el.masterSubtitle.textContent = 'Digite sua senha mestra. Ela não é enviada ao Google e não é salva pelo Keyron.';
+      el.masterSubtitle.textContent = 'Digite sua senha mestra';
       el.masterConfirmGroup.hidden = true;
       el.masterStrengthWrap.hidden = true;
       el.masterSubmit.textContent = 'Abrir cofre';
@@ -431,6 +471,8 @@
   }
 
   function openApplication() {
+    document.body.dataset.screen = 'app';
+    document.body.dataset.accessMode = 'app';
     el.accessShell.hidden = true;
     el.appScreen.hidden = false;
     renderAll();
@@ -900,7 +942,9 @@
   async function deleteCurrentEntry() {
     if (!state.editingEntryId) return;
     const entry = state.vault.entries.find((item) => item.id === state.editingEntryId);
-    if (!entry || !confirm(`Excluir definitivamente “${entry.name}”?`)) return;
+    if (!entry) return;
+    const confirmed = await askConfirm({ title: 'Excluir credencial', message: `Excluir definitivamente “${entry.name}”?`, confirmLabel: 'Excluir', kind: 'danger', kicker: 'EXCLUSÃO' });
+    if (!confirmed) return;
     KeyronVault.deleteEntry(state.vault, entry.id);
     el.entryDialog.close();
     await persistVault({ reason: 'entry-delete' });
@@ -939,7 +983,8 @@
       if (action === 'column-left') KeyronVault.moveColumn(state.vault, columnId, -1);
       if (action === 'column-right') KeyronVault.moveColumn(state.vault, columnId, 1);
       if (action === 'column-delete') {
-        if (!confirm(`Excluir a gaveta “${column.name}”? Ela precisa estar vazia.`)) return;
+        const confirmed = await askConfirm({ title: 'Excluir gaveta', message: `Excluir a gaveta “${column.name}”? Ela precisa estar vazia.`, confirmLabel: 'Excluir', kind: 'danger', kicker: 'ORGANIZAÇÃO' });
+        if (!confirmed) return;
         KeyronVault.deleteColumn(state.vault, columnId);
       }
       await persistVault({ reason: `column-${action}` });
@@ -990,7 +1035,8 @@
     if (!category) return;
     const used = state.vault.entries.filter((entry) => entry.categoryId === categoryId).length;
     const text = used ? `A categoria “${category.name}” está em ${used} credencial(is). Elas ficarão sem categoria. Continuar?` : `Excluir a categoria “${category.name}”?`;
-    if (!confirm(text)) return;
+    const confirmed = await askConfirm({ title: 'Excluir categoria', message: text, confirmLabel: 'Excluir', kind: 'danger', kicker: 'CATEGORIAS' });
+    if (!confirmed) return;
     KeyronVault.deleteCategory(state.vault, categoryId);
     if (state.activeCategoryId === categoryId) state.activeCategoryId = '';
     await persistVault({ render: false, reason: 'category-delete' });
@@ -1037,7 +1083,8 @@
       const text = await file.text();
       const candidate = JSON.parse(text);
       if (!KeyronCrypto.looksLikeEncryptedBundle(candidate)) throw new Error('INVALID_BUNDLE');
-      if (!confirm('O Keyron vai verificar a senha deste backup antes de substituir o cofre atual. Continuar?')) return;
+      const confirmed = await askConfirm({ title: 'Importar backup', message: 'O Keyron vai verificar a senha deste backup antes de substituir o cofre atual. Continuar?', confirmLabel: 'Continuar', kind: 'primary', kicker: 'BACKUP CIFRADO' });
+      if (!confirmed) return;
       state.pendingImportBundle = candidate;
       state.preImportBundle = state.bundle;
       closeAllDialogs();

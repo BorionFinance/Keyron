@@ -334,8 +334,7 @@ body.keyron-dragging-column .credential-card { pointer-events: none; }
   background: linear-gradient(150deg, #111b29, #090f18);
   box-shadow: 0 32px 100px rgba(0,0,0,.62);
 }
-.dialog::backdrop { background: rgba(3,6,10,.76); backdrop-filter: blur(9px); will-change: backdrop-filter; }
-.dialog { isolation: isolate; transform: translateZ(0); }
+.dialog::backdrop { background: rgba(3,6,10,.76); backdrop-filter: blur(9px); }
 .dialog > form, .dialog > .dialog-content { padding: 24px; }
 .dialog--small { width: min(440px, calc(100% - 24px)); padding: 24px; }
 .dialog--category, .dialog--settings { padding: 24px; }
@@ -1061,6 +1060,19 @@ body.biometric-first #biometric-unlock-btn { display: inline-flex; }
   border: 1px solid rgba(111,160,219,.18);
   background: linear-gradient(145deg, rgba(12,18,29,.985), rgba(5,9,16,.995));
 }
+/* Configurações: caminho de pintura leve para rolagem estável.
+   O fundo do cofre fica oculto enquanto o modal está aberto, então blur em tela cheia
+   não agrega informação visual e só força recomposição a cada frame. */
+.dialog--settings::backdrop {
+  background: rgba(3,6,10,.94);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.settings-open #app-screen,
+body.settings-open .ambient {
+  visibility: hidden;
+}
+
 .dialog--settings .settings-head {
   margin: 0;
   padding: 24px 26px 20px;
@@ -1100,25 +1112,24 @@ body.biometric-first #biometric-unlock-btn { display: inline-flex; }
 .settings-content {
   min-width: 0; min-height: 0; padding: 24px clamp(18px,3vw,34px) 42px;
   overflow-y: auto; overflow-x: hidden;
-  scroll-behavior: smooth; overscroll-behavior: contain;
+  scroll-behavior: auto; overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  contain: content;
   transform: translateZ(0);
-  will-change: scroll-position;
+  backface-visibility: hidden;
 }
 .settings-content::-webkit-scrollbar, .settings-nav::-webkit-scrollbar { width: 10px; }
 .settings-content::-webkit-scrollbar-track, .settings-nav::-webkit-scrollbar-track { background: transparent; }
 .settings-content::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb { background: rgba(102,144,193,.28); border: 3px solid transparent; background-clip: padding-box; border-radius: 99px; }
 .settings-panel { display: none; max-width: 840px; margin: 0 auto; }
-.settings-panel.is-active { display: grid; gap: 16px; animation: settingsPanelIn .24s ease both; }
+.settings-panel.is-active { display: grid; gap: 16px; animation: none; }
 @keyframes settingsPanelIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 .settings-hero { display: flex; gap: 16px; align-items: center; padding: 4px 2px 12px; }
 .settings-hero-icon { width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid rgba(62,155,255,.24); border-radius: 17px; background: linear-gradient(145deg, rgba(47,140,255,.16), rgba(47,140,255,.03)); font-size: 1.35rem; box-shadow: inset 0 0 20px rgba(47,140,255,.06); }
 .settings-hero h3 { margin: 3px 0 5px; font-size: clamp(1.25rem,2vw,1.65rem); }
 .settings-hero p { margin: 0; color: #8195ae; line-height: 1.55; }
-.settings-card { padding: 20px; border: 1px solid rgba(143,178,219,.12); border-radius: 18px; background: linear-gradient(145deg, rgba(19,28,42,.78), rgba(9,14,23,.72)); box-shadow: 0 15px 35px rgba(0,0,0,.13); contain: content; }
+.settings-card { padding: 20px; border: 1px solid rgba(143,178,219,.12); border-radius: 18px; background: linear-gradient(145deg, rgba(19,28,42,.78), rgba(9,14,23,.72)); box-shadow: 0 8px 20px rgba(0,0,0,.10); contain: layout style; }
 .settings-card--accent { border-color: rgba(47,140,255,.25); background: linear-gradient(145deg, rgba(25,55,91,.38), rgba(8,15,25,.82)); }
 .settings-card--warning { border-color: rgba(235,174,78,.19); background: linear-gradient(145deg, rgba(68,48,21,.25), rgba(12,16,23,.78)); }
 .settings-card h3 { margin: 0 0 9px; }

@@ -184,8 +184,8 @@ try {
   });
 
   test('PWA inclui módulo e interface de dispositivo confiável', () => {
-    assert(index.includes('js/offline-access.js?v=1.0.F-r4'), 'script offline ausente no HTML');
-    assert(sw.includes("'./js/offline-access.js?v=1.0.F-r4'"), 'script offline ausente no cache PWA');
+    assert(index.includes('js/offline-access.js?v=1.0.F-r5'), 'script offline ausente no HTML');
+    assert(sw.includes("'./js/offline-access.js?v=1.0.F-r5'"), 'script offline ausente no cache PWA');
     assert(index.includes('id="offline-access-section"'), 'configuração offline ausente');
     assert(index.includes('id="offline-access-banner"'), 'aviso de sessão offline ausente');
     assert(config.includes('OFFLINE_TRUST_DAYS: 30'), 'validade offline não configurada em 30 dias');
@@ -204,8 +204,8 @@ try {
     assert((app.match(/KeyronOfflineAccess\.enroll\(/g) || []).length === 1, 'autorização offline possui rota automática ou duplicada');
     assert((app.match(/KeyronOfflineAccess\.refresh\(/g) || []).length === 1, 'renovação offline possui rota automática ou duplicada');
     assert(!app.includes('refreshExistingOfflineAuthorization'), 'autorização offline ainda é renovada automaticamente no login');
-    assert(sw.includes("keyron-shell-v1.0.F-r4"), 'cache corrigido não foi versionado');
-    assert(app.includes("service-worker.js?v=1.0.F-r4") && app.includes("updateViaCache: 'none'"), 'atualização forçada do PWA ausente');
+    assert(sw.includes("keyron-shell-v1.0.F-r5"), 'cache corrigido não foi versionado');
+    assert(app.includes("service-worker.js?v=1.0.F-r5") && app.includes("updateViaCache: 'none'"), 'atualização forçada do PWA ausente');
   });
 
   test('Drive combina If-Match com preflight de linhagem e confirmação sem ETag', () => {
@@ -310,6 +310,16 @@ try {
     assert(sw.includes('SHELL_URLS.has(event.request.url)') && sw.includes('networkOnly'), 'cache aceita recursos fora da shell');
   });
 
+  test('Configurações usam caminho de pintura leve', () => {
+    const css = read('css/style.css');
+    assert(css.includes('.dialog--settings::backdrop') && css.includes('backdrop-filter: none'), 'blur de tela cheia ainda ativo nas Configurações');
+    assert(css.includes('body.settings-open #app-screen') && css.includes('visibility: hidden'), 'cofre continua sendo repintado atrás das Configurações');
+    assert(css.includes('.settings-panel.is-active { display: grid; gap: 16px; animation: none; }'), 'animação de painel ainda ativa');
+    assert(app.includes("behavior: 'auto'"), 'troca de seção ainda força rolagem suave');
+    assert(app.includes("document.body.classList.add('settings-open')"), 'modo de desempenho não é ativado');
+    assert(app.includes("el.settingsDialog.addEventListener('close'"), 'modo de desempenho não é removido ao fechar');
+  });
+
   test('Não há áudio, som automático ou APIs de reprodução', () => {
     assert(!/<audio\b|new\s+Audio\s*\(|\.play\s*\(/i.test(allSource), 'áudio encontrado');
   });
@@ -320,7 +330,7 @@ try {
     for (const icon of manifest.icons || []) assert(fs.existsSync(path.join(root, icon.src)), `ícone ausente: ${icon.src}`);
   });
 
-  console.log(`\n${passed}/38 testes estáticos de segurança aprovados.`);
+  console.log(`\n${passed}/39 testes estáticos de segurança aprovados.`);
 } catch (error) {
   console.error(`✗ ${error.message}`);
   process.exit(1);

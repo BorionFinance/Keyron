@@ -102,7 +102,6 @@
     logoInput: $('#logo-input'),
     logoPreview: $('#logo-preview'),
     removeLogo: $('#remove-logo-btn'),
-    autoLogoBtn: $('#auto-logo-btn'),
     fName: $('#f-name'),
     fColumn: $('#f-column'),
     fCategory: $('#f-category'),
@@ -1930,7 +1929,7 @@
     const target = name || 'security';
     $$('[data-settings-section]', el.settingsNav).forEach((button) => button.classList.toggle('is-active', button.dataset.settingsSection === target));
     $$('[data-settings-panel]', el.settingsContent).forEach((panel) => panel.classList.toggle('is-active', panel.dataset.settingsPanel === target));
-    if (scroll) el.settingsContent.scrollTo({ top: 0, behavior: 'smooth' });
+    if (scroll) el.settingsContent.scrollTo({ top: 0, behavior: 'auto' });
   }
 
   function renderBreachResults() {
@@ -2639,14 +2638,8 @@
     if (!allowed.has(file.type)) throw new Error('UNSUPPORTED_IMAGE');
     if (file.size > Number(KeyronConfig.MAX_LOGO_BYTES || 4194304)) throw new Error('IMAGE_TOO_LARGE');
     if (!(await hasValidImageSignature(file))) throw new Error('INVALID_IMAGE_SIGNATURE');
-    return imageSourceToLogo(file, file.name.slice(0, 120));
-  }
 
-  // Recebe qualquer Blob (arquivo local ou baixado da internet), redesenha em
-  // canvas e devolve sempre um dataUrl webp/png — mesmo formato que o cofre
-  // já valida e cifra. Compartilhado pelo upload manual e pela busca automática.
-  async function imageSourceToLogo(sourceBlob, nameHint) {
-    const objectUrl = URL.createObjectURL(sourceBlob);
+    const objectUrl = URL.createObjectURL(file);
     try {
       const image = new Image();
       image.decoding = 'async';
@@ -2670,43 +2663,14 @@
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(image, 0, 0, width, height);
-      let outputBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
-      if (!outputBlob) outputBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!outputBlob) throw new Error('IMAGE_PROCESS_FAILED');
-      const dataUrl = await blobToDataUrl(outputBlob);
-      return { dataUrl, type: outputBlob.type, name: nameHint, bytes: outputBlob.size };
+      let blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
+      if (!blob) blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('IMAGE_PROCESS_FAILED');
+      const dataUrl = await blobToDataUrl(blob);
+      return { dataUrl, type: blob.type, name: file.name.slice(0, 120), bytes: blob.size };
     } finally {
       URL.revokeObjectURL(objectUrl);
     }
-  }
-
-  // Fontes públicas de favicon/ícone, tentadas em ordem. Cada uma só é aceita
-  // se responder com CORS liberado (senão o fetch já falha sozinho) — o que
-  // vier daqui é sempre reprocessado em canvas e salvo cifrado no cofre,
-  // igual a uma logo enviada manualmente. Nada fica "pendurado" na internet.
-  const AUTO_LOGO_SOURCES = [
-    (host) => `https://www.google.com/s2/favicons?sz=128&domain=${encodeURIComponent(host)}`,
-    (host) => `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
-  ];
-
-  async function fetchAutoLogo(rawUrl) {
-    const normalized = normalizeUrl(rawUrl);
-    if (!normalized) throw new Error('INVALID_URL');
-    const host = new URL(normalized).hostname;
-    let lastError = new Error('AUTO_LOGO_NOT_FOUND');
-    for (const buildUrl of AUTO_LOGO_SOURCES) {
-      try {
-        const response = await fetch(buildUrl(host), { mode: 'cors', cache: 'no-store', referrerPolicy: 'no-referrer' });
-        if (!response.ok) { lastError = new Error('AUTO_LOGO_NOT_FOUND'); continue; }
-        const sourceBlob = await response.blob();
-        if (!sourceBlob.type.startsWith('image/') || sourceBlob.size < 40) { lastError = new Error('AUTO_LOGO_NOT_FOUND'); continue; }
-        if (sourceBlob.size > Number(KeyronConfig.MAX_LOGO_BYTES || 4194304)) { lastError = new Error('IMAGE_TOO_LARGE'); continue; }
-        return await imageSourceToLogo(sourceBlob, `auto-${host}`.slice(0, 120));
-      } catch (error) {
-        lastError = error; // fonte sem CORS liberado, offline, etc. — tenta a próxima
-      }
-    }
-    throw lastError;
   }
 
   function blobToDataUrl(blob) {
@@ -2758,6 +2722,7 @@
 
   function closeAllDialogs() {
     $$('dialog[open]').forEach((dialog) => dialog.close());
+    document.body.classList.remove('settings-open');
   }
 
   async function handleBoardClick(event) {
@@ -2917,7 +2882,15 @@
       renderBoard();
     });
     el.manageCategories.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
-    el.settingsBtn.addEventListener('click', () => { renderSettings(); activateSettingsSection('security', { scroll: false }); el.settingsDialog.showModal(); });
+    el.settingsBtn.addEventListener('click', () => {
+      document.body.classList.add('settings-open');
+      el.settingsDialog.showModal();
+      requestAnimationFrame(() => {
+        renderSettings();
+        activateSettingsSection('security', { scroll: false });
+      });
+    });
+    el.settingsDialog.addEventListener('close', () => document.body.classList.remove('settings-open'));
     el.settingsNav.addEventListener('click', (event) => {
       const button = event.target.closest('[data-settings-section]');
       if (button) activateSettingsSection(button.dataset.settingsSection);
@@ -3052,27 +3025,6 @@
       }
     });
     el.removeLogo.addEventListener('click', () => { state.pendingLogo = null; renderLogoPreview(); });
-    el.autoLogoBtn.addEventListener('click', async () => {
-      const url = el.fUrl.value.trim();
-      if (!url) { toast('Preencha o campo Site com o endereço do serviço primeiro.', 'info'); el.fUrl.focus(); return; }
-      setBusy(true, 'Buscando ícone…', 'Consultando fontes públicas de ícones para esse site.');
-      try {
-        state.pendingLogo = await fetchAutoLogo(url);
-        renderLogoPreview();
-        toast('Ícone encontrado e salvo cifrado no cofre.', 'success');
-      } catch (error) {
-        const messages = {
-          INVALID_PROTOCOL: 'Use um endereço válido começando com http:// ou https://.',
-          INVALID_URL: 'Preencha um endereço válido em Site antes de buscar o ícone.',
-          AUTO_LOGO_NOT_FOUND: 'Nenhum ícone foi encontrado para esse endereço. Tente enviar manualmente.',
-          IMAGE_TOO_LARGE: 'O ícone encontrado é grande demais.',
-          IMAGE_DIMENSIONS_TOO_LARGE: 'O ícone encontrado tem dimensões grandes demais.'
-        };
-        toast(messages[error.message] || 'Não foi possível buscar um ícone automaticamente agora.', 'error');
-      } finally {
-        setBusy(false);
-      }
-    });
     el.quickCategory.addEventListener('click', () => { renderCategoryDialog(); el.categoryDialog.showModal(); });
 
     el.columnForm.addEventListener('submit', handleColumnSubmit);
@@ -3241,7 +3193,7 @@
     if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r4', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r5', { updateViaCache: 'none' })
         .then((registration) => registration.update().catch(() => null))
         .catch((error) => console.warn('Service Worker:', error));
     }

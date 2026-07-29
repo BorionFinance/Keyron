@@ -21,7 +21,7 @@ O Keyron é um cofre pessoal de credenciais em HTML, CSS e JavaScript puros. O c
 
 ## Correção interna da v1.0.F
 
-A revisão de manutenção `r4` mantém o nome visível **v1.0.F**, mas troca o identificador interno do cache do PWA. Isso força a atualização de HTML, CSS e JavaScript e impede que uma instalação anterior continue mostrando a tela de Segurança sem o card de acesso offline.
+A revisão de manutenção `r5` mantém o nome visível **v1.0.F**, atualiza o cache do PWA e aplica um caminho de renderização leve às Configurações: sem blur de tela cheia, sem rolagem suave forçada e sem repintar o cofre atrás do modal. A criptografia, o acesso offline, a biometria e a sincronização permanecem inalterados.
 
 ## Acesso offline por dispositivo confiável
 

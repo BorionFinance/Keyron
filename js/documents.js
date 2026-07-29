@@ -518,6 +518,16 @@ const KeyronDocuments = (() => {
     el.viewerMeta?.replaceChildren();
   }
 
+  async function validatePdfPreview(blob) {
+    if (!(blob instanceof Blob) || blob.size < 5) {
+      throw new Error('DOCUMENT_PREVIEW_TYPE_MISMATCH');
+    }
+    const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    const valid = head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46 && head[4] === 0x2d;
+    head.fill(0);
+    if (!valid) throw new Error('DOCUMENT_PREVIEW_TYPE_MISMATCH');
+  }
+
   function requestReauthentication(reason) {
     return new Promise((resolve) => {
       state.reauthResolve?.(false);
@@ -572,12 +582,16 @@ const KeyronDocuments = (() => {
     try {
       const container = await loadEncryptedContainer(item, (info) => progressFromDrive(item.name, info));
       setProgress(true, item.name, 'Descriptografando somente neste dispositivo…', 25);
-      const plain = await KeyronDocumentsCrypto.decryptToBlob(container, item, {
+      let plain = await KeyronDocumentsCrypto.decryptToBlob(container, item, {
         vaultId: vault().id,
         rootKey: documents().rootKey,
         signal: state.operation.signal,
         onProgress: (info) => setProgress(true, item.name, `Abrindo localmente · ${info.percent || 0}%`, info.percent || 0)
       });
+      if (item.previewKind === 'pdf') {
+        await validatePdfPreview(plain);
+        if (plain.type !== 'application/pdf') plain = new Blob([plain], { type: 'application/pdf' });
+      }
       state.currentPlainBlob = plain;
       state.currentObjectUrl = URL.createObjectURL(plain);
       state.currentItemId = item.id;
@@ -594,10 +608,14 @@ const KeyronDocuments = (() => {
         el.viewerStage.appendChild(image);
       } else if (item.previewKind === 'pdf') {
         const frame = document.createElement('iframe');
-        frame.src = state.currentObjectUrl;
+        // O visualizador nativo de PDF do Chrome é uma página interna do navegador.
+        // Um iframe com sandbox bloqueia essa página e exibe “Esta página foi bloqueada
+        // pelo Chrome”. O arquivo continua vindo de um Blob local, já descriptografado
+        // somente em memória; não usamos URL do Drive nem liberamos conteúdo externo.
+        frame.src = `${state.currentObjectUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
         frame.title = item.name;
         frame.className = 'document-viewer-frame';
-        frame.setAttribute('sandbox', 'allow-same-origin');
+        frame.referrerPolicy = 'no-referrer';
         el.viewerStage.appendChild(frame);
       } else {
         const message = document.createElement('div');
@@ -624,6 +642,7 @@ const KeyronDocuments = (() => {
         DOCUMENT_OFFLINE_UNAVAILABLE: 'Este documento não está disponível offline. Reconecte o Google Drive.',
         DOCUMENT_AUTH_FAILED: 'A integridade do documento não pôde ser confirmada. Ele não foi aberto.',
         INVALID_DOCUMENT_CONTAINER: 'O objeto cifrado está incompleto ou corrompido.',
+        DOCUMENT_PREVIEW_TYPE_MISMATCH: 'O conteúdo aberto não corresponde a um PDF válido e não foi exibido.',
         DOCUMENT_OPERATION_ABORTED: 'A abertura foi cancelada.'
       };
       state.deps.toast?.(messages[error.message] || 'Não foi possível abrir este documento com segurança.', 'error', 5500);

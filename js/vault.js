@@ -83,7 +83,7 @@ const KeyronVault = (() => {
       categories: DEFAULT_DOCUMENT_CATEGORIES.map(([name, icon], order) => ({ id: id(), name, icon, order })),
       items: [],
       tombstones: [],
-      preferences: { view: 'grid', showMiniatures: true },
+      preferences: { view: 'grid', showMiniatures: true, sort: 'manual' },
       updatedAt: now()
     };
   }
@@ -97,7 +97,7 @@ const KeyronVault = (() => {
     return { iv, data, algorithm: 'AES-256-GCM', version: 1 };
   }
 
-  function normalizeDocumentItem(item, categoryIds, seenIds) {
+  function normalizeDocumentItem(item, categoryIds, seenIds, fallbackOrder = 0) {
     const documentId = uniqueId(item?.id, seenIds);
     const detectedMime = clean(item?.detectedMime, 120) || 'application/octet-stream';
     const sensitivity = ['normal', 'sensitive', 'very-sensitive'].includes(item?.sensitivity) ? item.sensitivity : 'sensitive';
@@ -120,6 +120,7 @@ const KeyronVault = (() => {
       originalBytes,
       cipherBytes,
       categoryId: categoryIds.has(item?.categoryId) ? item.categoryId : null,
+      order: Number.isFinite(Number(item?.order)) ? Math.max(0, Math.min(MAX_DOCUMENTS, Math.trunc(Number(item.order)))) : fallbackOrder,
       tags: Array.isArray(item?.tags) ? [...new Set(item.tags.map((tag) => clean(tag, 40)).filter(Boolean))].slice(0, MAX_DOCUMENT_TAGS) : [],
       note: clean(item?.note, 2000),
       favorite: Boolean(item?.favorite),
@@ -168,7 +169,7 @@ const KeyronVault = (() => {
     const categoryIds = new Set(categories.map((category) => category.id));
     const seenItems = new Set();
     const items = (Array.isArray(value.items) ? value.items : []).slice(0, MAX_DOCUMENTS)
-      .map((item) => normalizeDocumentItem(item, categoryIds, seenItems))
+      .map((item, index) => normalizeDocumentItem(item, categoryIds, seenItems, index))
       .filter((item) => item.wrappedKey && item.objectId && item.originalBytes > 0 && item.cipherBytes > 0);
     const rootKey = typeof value.rootKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value.rootKey) ? value.rootKey : null;
     const seenTombstones = new Set();
@@ -184,7 +185,8 @@ const KeyronVault = (() => {
       tombstones,
       preferences: {
         view: value.preferences?.view === 'list' ? 'list' : 'grid',
-        showMiniatures: value.preferences?.showMiniatures !== false
+        showMiniatures: value.preferences?.showMiniatures !== false,
+        sort: ['manual', 'recent', 'name', 'size', 'opened'].includes(value.preferences?.sort) ? value.preferences.sort : 'manual'
       },
       updatedAt: validDate(value.updatedAt)
     };

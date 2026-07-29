@@ -14,10 +14,10 @@ const KeyronCrypto = (() => {
   const MAX_PASSWORD_CHARS = 2048;
   const MAX_CIPHERTEXT_BYTES = 64 * 1024 * 1024;
   const FORMAT = 'keyron-vault';
-  const FORMAT_VERSION = 4;
+  const FORMAT_VERSION = 5;
   // Os embrulhos v3 já publicados usam AAD versão 3. Mantê-la fixa preserva compatibilidade.
   const WRAP_AAD_VERSION = 3;
-  const SUPPORTED_FORMAT_VERSIONS = new Set([2, 3, 4]);
+  const SUPPORTED_FORMAT_VERSIONS = new Set([2, 3, 4, 5]);
   const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const RECOVERY_CHARS = 30;
 

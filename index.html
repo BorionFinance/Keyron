@@ -8,15 +8,15 @@
   <meta name="theme-color" content="#070b12" />
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=1.0.F-r5" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests" />
+  <link rel="manifest" href="manifest.json?v=1.0.F-r6" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <script src="js/frame-guard.js?v=1.0.F-r5"></script>
-  <link rel="stylesheet" href="css/style.css?v=1.0.F-r5" />
+  <script src="js/frame-guard.js?v=1.0.F-r6"></script>
+  <link rel="stylesheet" href="css/style.css?v=1.0.F-r6" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -120,7 +120,7 @@
       </div>
     </header>
 
-    <div class="workspace-head">
+    <div id="vault-workspace-head" class="workspace-head">
       <div>
         <div class="eyebrow"><span class="status-dot"></span> Cofre desbloqueado</div>
         <h1>Meu Keyron</h1>
@@ -128,6 +128,7 @@
         <p id="vault-last-activity" class="last-activity" hidden></p>
       </div>
       <div class="workspace-actions">
+        <button type="button" id="documents-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">▤</span><span class="btn-label">Documentos</span></button>
         <button type="button" id="collapse-all-btn" class="btn btn--ghost" aria-expanded="true"><svg class="column-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg><span class="btn-label">Retrair tudo</span></button>
         <button type="button" id="manage-categories-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">◈</span><span class="btn-label">Categorias</span></button>
         <button type="button" id="add-column-btn" class="btn btn--ghost"><span class="btn-icon" aria-hidden="true">▣</span><span class="btn-label">+ Nova gaveta</span></button>
@@ -145,6 +146,42 @@
     </div>
 
     <main id="vault-board" class="vault-board" aria-label="Gavetas de credenciais"></main>
+
+    <section id="documents-view" class="documents-view" hidden aria-label="Documentos protegidos">
+      <header class="documents-head">
+        <div class="documents-heading">
+          <button type="button" id="documents-back-btn" class="btn btn--ghost btn--small" aria-label="Voltar ao cofre">← Cofre</button>
+          <div><div class="eyebrow"><span class="status-dot"></span> Arquivos cifrados</div><h1>Documentos</h1><p id="documents-summary">Nenhum documento</p></div>
+        </div>
+        <div class="documents-head-actions">
+          <button type="button" id="documents-view-toggle" class="btn btn--ghost btn--small" title="Alternar visualização">▦ Grade</button>
+          <button type="button" id="documents-add-btn" class="btn btn--primary"><span class="btn-icon" aria-hidden="true">+</span><span class="btn-label">Adicionar documentos</span></button>
+          <input type="file" id="documents-input" multiple hidden />
+        </div>
+      </header>
+
+      <div class="documents-toolbar">
+        <div id="documents-filters" class="documents-filters" aria-label="Filtros de documentos"></div>
+        <label class="documents-sort">Ordenar<select id="documents-sort"><option value="recent">Mais recentes</option><option value="name">Nome</option><option value="size">Tamanho</option><option value="opened">Último aberto</option></select></label>
+      </div>
+
+      <div id="documents-dropzone" class="documents-dropzone" tabindex="0">
+        <span class="documents-drop-icon" aria-hidden="true">⇧</span>
+        <div><strong>Arraste arquivos para cá</strong><small>Eles serão cifrados neste dispositivo antes de chegar ao Drive.</small></div>
+        <button type="button" id="documents-choose-btn" class="btn btn--ghost btn--small">Escolher arquivos</button>
+      </div>
+
+      <div id="documents-progress" class="documents-progress" hidden aria-live="polite">
+        <div><strong id="documents-progress-title">Preparando documento…</strong><small id="documents-progress-detail">Validação local</small></div>
+        <div class="documents-progress-track"><span id="documents-progress-bar"></span></div>
+        <button type="button" id="documents-cancel-btn" class="text-button text-button--danger">Cancelar</button>
+      </div>
+
+      <div id="documents-empty" class="documents-empty">
+        <span aria-hidden="true">▤</span><h2>Seu cofre de documentos está vazio.</h2><p>Adicione PDFs, fotos e outros arquivos. O conteúdo será cifrado antes da sincronização.</p>
+      </div>
+      <div id="documents-list" class="documents-list" role="list"></div>
+    </section>
   </section>
 
   <dialog id="entry-dialog" class="dialog dialog--entry">
@@ -360,12 +397,12 @@
         <section class="settings-panel" data-settings-panel="privacy">
           <div class="settings-hero"><span class="settings-hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="3"/></svg></span><div><span class="dialog-kicker">PRIVACY FIRST</span><h3>O que sai do dispositivo</h3><p>O Keyron cifra antes de sincronizar e reduz ao mínimo os dados enviados.</p></div></div>
           <div class="privacy-grid">
-            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><h3>Cofre cifrado</h3><p>Senhas, usuários, notas, categorias, logos, posições e resultados de auditoria ficam dentro do payload AES-256-GCM.</p></article>
+            <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><h3>Cofre cifrado</h3><p>Senhas, usuários, notas, categorias, logos, posições, índice documental e chaves embrulhadas ficam dentro do payload AES-256-GCM.</p></article>
             <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18.5a4.2 4.2 0 0 1-.7-8.34A5.5 5.5 0 0 1 17 9.6a4.1 4.1 0 0 1 .4 8.15"/><path d="M7 18.5h10.4"/></svg></span><h3>Google Drive</h3><p>O escopo <code>drive.file</code> limita o Keyron aos arquivos que o próprio aplicativo criou ou abriu.</p></article>
             <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="20" y1="20" x2="15.3" y2="15.3"/></svg></span><h3>Consulta de vazamentos</h3><p>A base externa recebe somente um prefixo de 5 caracteres do SHA-1, nunca sua senha nem o hash completo.</p></article>
             <article class="settings-card"><span class="settings-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span><h3>Sem rastreamento</h3><p>O Keyron não precisa de anúncios, analytics de comportamento ou banco de senhas em servidor próprio.</p></article>
           </div>
-          <div class="settings-card"><h3>Estrutura no Google Drive</h3><div class="drive-map"><code>Keyron/</code><code>├── vault.keyron <span>conteúdo cifrado</span></code><code>└── Backups/ <span>snapshots cifrados</span></code></div><p class="fine-print">O Google ainda vê metadados técnicos como nome, tamanho e data do arquivo. O conteúdo do cofre permanece cifrado.</p></div>
+          <div class="settings-card"><h3>Estrutura no Google Drive</h3><div class="drive-map"><code>Keyron/</code><code>├── vault.keyron <span>cofre e índice cifrados</span></code><code>├── Backups/ <span>snapshots cifrados</span></code><code>└── Documents/Objects/ <span>arquivos .kdoc com nomes opacos</span></code></div><p class="fine-print">O Google ainda vê metadados técnicos como quantidade, tamanho aproximado e datas dos objetos. Nomes reais, categorias e conteúdo permanecem dentro da camada cifrada.</p></div>
         </section>
 
         <section class="settings-panel" data-settings-panel="appearance">
@@ -396,6 +433,62 @@
         </section>
       </div>
     </div>
+  </dialog>
+
+
+
+
+
+  <dialog id="document-reauth-dialog" class="dialog dialog--small">
+    <form id="document-reauth-form" method="dialog" autocomplete="off">
+      <div class="dialog-head"><div><span class="dialog-kicker">CONFIRMAÇÃO DE SEGURANÇA</span><h2>Confirme que é você</h2><p id="document-reauth-reason">Esta ação abre uma cópia legível fora do armazenamento cifrado.</p></div><button type="button" class="dialog-close" data-close-dialog="document-reauth-dialog" aria-label="Fechar">×</button></div>
+      <div class="field"><label for="document-reauth-password">Senha mestra</label><input type="password" id="document-reauth-password" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" /></div>
+      <p id="document-reauth-error" class="field-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="document-reauth-biometric" class="btn btn--ghost">Usar biometria</button><span></span><button type="button" class="btn btn--ghost" data-close-dialog="document-reauth-dialog">Cancelar</button><button type="submit" class="btn btn--primary">Confirmar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="document-import-dialog" class="dialog dialog--document-import">
+    <form id="document-import-form" method="dialog">
+      <div class="dialog-head"><div><span class="dialog-kicker">IMPORTAÇÃO CIFRADA</span><h2>Adicionar documentos</h2><p id="document-import-summary">Revise os arquivos antes de cifrar e enviar.</p></div><button type="button" class="dialog-close" data-close-dialog="document-import-dialog" aria-label="Fechar">×</button></div>
+      <div id="document-import-files" class="document-import-files"></div>
+      <div class="form-grid">
+        <div class="field"><label for="document-import-category">Categoria</label><select id="document-import-category"></select></div>
+        <div class="field"><label for="document-import-sensitivity">Proteção</label><select id="document-import-sensitivity"><option value="normal">Normal</option><option value="sensitive" selected>Sensível</option><option value="very-sensitive">Muito sensível</option></select></div>
+      </div>
+      <label class="toggle-row" for="document-import-offline"><span><b>Disponível offline neste aparelho</b><small>Guarda somente a cópia cifrada no dispositivo.</small></span><input type="checkbox" id="document-import-offline" /><i aria-hidden="true"></i></label>
+      <p id="document-import-error" class="field-error" role="alert"></p>
+      <div class="dialog-actions"><span></span><span></span><button type="button" class="btn btn--ghost" data-close-dialog="document-import-dialog">Cancelar</button><button type="submit" id="document-import-submit" class="btn btn--primary">Cifrar e enviar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="document-viewer-dialog" class="dialog dialog--document-viewer">
+    <div class="document-viewer-head">
+      <div><span id="document-viewer-type" class="dialog-kicker">DOCUMENTO</span><h2 id="document-viewer-title">Documento</h2></div>
+      <div class="document-viewer-actions">
+        <button type="button" id="document-viewer-favorite" class="btn btn--ghost btn--small" title="Favoritar">☆</button>
+        <button type="button" id="document-viewer-download" class="btn btn--ghost btn--small">Salvar como</button>
+        <button type="button" id="document-viewer-print" class="btn btn--ghost btn--small">Imprimir</button>
+        <button type="button" class="dialog-close" data-close-dialog="document-viewer-dialog" aria-label="Fechar">×</button>
+      </div>
+    </div>
+    <div id="document-viewer-stage" class="document-viewer-stage"></div>
+    <div id="document-viewer-meta" class="document-viewer-meta"></div>
+  </dialog>
+
+  <dialog id="document-details-dialog" class="dialog dialog--document-details">
+    <form id="document-details-form" method="dialog">
+      <div class="dialog-head"><div><span class="dialog-kicker">DETALHES CIFRADOS</span><h2>Editar documento</h2></div><button type="button" class="dialog-close" data-close-dialog="document-details-dialog" aria-label="Fechar">×</button></div>
+      <div class="form-grid">
+        <div class="field field--span-2"><label for="document-detail-name">Nome</label><input id="document-detail-name" maxlength="200" required /></div>
+        <div class="field"><label for="document-detail-category">Categoria</label><select id="document-detail-category"></select></div>
+        <div class="field"><label for="document-detail-sensitivity">Proteção</label><select id="document-detail-sensitivity"><option value="normal">Normal</option><option value="sensitive">Sensível</option><option value="very-sensitive">Muito sensível</option></select></div>
+        <div class="field field--span-2"><label for="document-detail-tags">Etiquetas</label><input id="document-detail-tags" maxlength="400" placeholder="Ex.: pessoal, imóvel, 2026" /></div>
+        <div class="field field--span-2"><label for="document-detail-note">Observação</label><textarea id="document-detail-note" maxlength="2000" rows="4"></textarea></div>
+      </div>
+      <div class="document-detail-security-row"><button type="button" id="document-detail-offline" class="btn btn--ghost">Disponibilizar offline</button><span>Somente o container cifrado é salvo neste aparelho.</span></div>
+      <div class="dialog-actions"><button type="button" id="document-detail-trash" class="btn btn--danger">Mover para lixeira</button><span></span><button type="button" class="btn btn--ghost" data-close-dialog="document-details-dialog">Cancelar</button><button type="submit" class="btn btn--primary">Salvar detalhes</button></div>
+    </form>
   </dialog>
 
   <dialog id="import-review-dialog" class="dialog dialog--import-review">
@@ -457,17 +550,20 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=1.0.F-r5"></script>
-  <script src="js/crypto.js?v=1.0.F-r5"></script>
-  <script src="js/storage.js?v=1.0.F-r5"></script>
-  <script src="js/save-engine.js?v=1.0.F-r5"></script>
-  <script src="js/vault.js?v=1.0.F-r5"></script>
-  <script src="js/generator.js?v=1.0.F-r5"></script>
-  <script src="js/breach-check.js?v=1.0.F-r5"></script>
-  <script src="js/drive.js?v=1.0.F-r5"></script>
-  <script src="js/biometric.js?v=1.0.F-r5"></script>
-  <script src="js/offline-access.js?v=1.0.F-r5"></script>
+  <script src="js/config.js?v=1.0.F-r6"></script>
+  <script src="js/crypto.js?v=1.0.F-r6"></script>
+  <script src="js/storage.js?v=1.0.F-r6"></script>
+  <script src="js/save-engine.js?v=1.0.F-r6"></script>
+  <script src="js/documents-crypto.js?v=1.0.F-docs-r1"></script>
+  <script src="js/documents-cache.js?v=1.0.F-docs-r1"></script>
+  <script src="js/vault.js?v=1.0.F-r6"></script>
+  <script src="js/generator.js?v=1.0.F-r6"></script>
+  <script src="js/breach-check.js?v=1.0.F-r6"></script>
+  <script src="js/drive.js?v=1.0.F-r6"></script>
+  <script src="js/biometric.js?v=1.0.F-r6"></script>
+  <script src="js/offline-access.js?v=1.0.F-r6"></script>
+  <script src="js/documents.js?v=1.0.F-docs-r1"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=1.0.F-r5"></script>
+  <script src="js/app.js?v=1.0.F-r6"></script>
 </body>
 </html>

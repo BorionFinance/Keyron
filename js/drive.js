@@ -8,9 +8,13 @@ const KeyronDrive = (() => {
   const SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const ROOT_NAME = 'Keyron';
   const BACKUP_FOLDER_NAME = 'Backups';
+  const DOCUMENT_FOLDER_NAME = 'Documents';
+  const DOCUMENT_OBJECTS_FOLDER_NAME = 'Objects';
+  const MAX_DOCUMENT_BYTES = 270 * 1024 * 1024;
+  const RESUMABLE_CHUNK_BYTES = 8 * 1024 * 1024;
   const VAULT_NAME = 'vault.keyron';
   const FOLDER_MIME = 'application/vnd.google-apps.folder';
-  const SNAPSHOT_CACHE_KEY = 'keyron_last_snapshot_at_v4';
+  const SNAPSHOT_CACHE_KEY = 'keyron_last_snapshot_at_v5';
 
   let tokenClient = null;
   let accessToken = null;
@@ -252,7 +256,7 @@ const KeyronDrive = (() => {
       name,
       mimeType: FOLDER_MIME,
       parents: parentId ? [parentId] : undefined,
-      appProperties: { keyronRole: role, keyronVersion: '4' }
+      appProperties: { keyronRole: role, keyronVersion: '5' }
     });
   }
 
@@ -308,7 +312,7 @@ const KeyronDrive = (() => {
       name: VAULT_NAME,
       mimeType: 'application/octet-stream',
       parents: [structure.root.id],
-      appProperties: { keyronRole: 'vault', keyronVersion: '4' }
+      appProperties: { keyronRole: 'vault', keyronVersion: '5' }
     }, bundle);
     structure.vault = created.file;
     cachedRemoteBundle = bundle;
@@ -360,7 +364,7 @@ const KeyronDrive = (() => {
         name,
         mimeType: 'application/octet-stream',
         parents: [structure.backups.id],
-        appProperties: { keyronRole: 'backup', keyronVersion: '4', keyronConflict: options.conflict ? 'true' : 'false' }
+        appProperties: { keyronRole: 'backup', keyronVersion: '5', keyronConflict: options.conflict ? 'true' : 'false' }
       }, bundle);
       writeLastSnapshotAt();
       await trimBackups().catch(() => null);
@@ -434,6 +438,178 @@ const KeyronDrive = (() => {
     return updated.file;
   }
 
+
+
+  async function ensureDocumentStructure() {
+    const structure = await ensureStructure();
+    if (!structure.documents) {
+      structure.documents = await findOrCreateFolder({ name: DOCUMENT_FOLDER_NAME, parentId: structure.root.id, role: 'documents' });
+    }
+    if (!structure.documentObjects) {
+      structure.documentObjects = await findOrCreateFolder({ name: DOCUMENT_OBJECTS_FOLDER_NAME, parentId: structure.documents.id, role: 'document-objects' });
+    }
+    return { root: structure.documents, objects: structure.documentObjects };
+  }
+
+  async function initiateDocumentUpload(encryptedBlob, metadata) {
+    const response = await apiFetch(`${UPLOAD}/files?uploadType=resumable&fields=${encodeURIComponent('id,name,createdTime,modifiedTime,version,size,md5Checksum,parents,appProperties')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': 'application/octet-stream',
+        'X-Upload-Content-Length': String(encryptedBlob.size)
+      },
+      body: JSON.stringify(metadata)
+    }, { idempotent: false, timeoutMs: 30000 });
+    const location = response.headers.get('location');
+    if (!location || !/^https:\/\/www\.googleapis\.com\//.test(location)) throw new Error('DRIVE_RESUMABLE_LOCATION_UNAVAILABLE');
+    return location;
+  }
+
+  async function rawUploadFetch(url, { body = null, start = null, end = null, total, signal } = {}) {
+    if (!isConnected()) throw new Error('DRIVE_NOT_CONNECTED');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      const headers = new Headers({
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream'
+      });
+      headers.set('Content-Range', body ? `bytes ${start}-${end}/${total}` : `bytes */${total}`);
+      return await fetch(url, { method: 'PUT', headers, body, signal: controller.signal, referrerPolicy: 'no-referrer', cache: 'no-store' });
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    }
+  }
+
+  function uploadedOffset(response) {
+    const range = response.headers.get('range') || '';
+    const match = range.match(/bytes=0-(\d+)/i);
+    return match ? Number(match[1]) + 1 : 0;
+  }
+
+  async function queryDocumentUploadOffset(sessionUrl, total, signal) {
+    const response = await rawUploadFetch(sessionUrl, { total, signal });
+    if (response.status === 308) return { complete: false, offset: uploadedOffset(response) };
+    if (response.ok) return { complete: true, file: await response.json() };
+    if (response.status === 401) {
+      accessToken = null;
+      tokenExpiresAt = 0;
+    }
+    throw new Error(`DRIVE_UPLOAD_STATUS_${response.status}`);
+  }
+
+  async function uploadDocumentObject(encryptedBlob, { documentId, operationId, signal, onProgress } = {}) {
+    if (!(encryptedBlob instanceof Blob) || encryptedBlob.size <= 0 || encryptedBlob.size > MAX_DOCUMENT_BYTES) throw new Error('DRIVE_DOCUMENT_TOO_LARGE');
+    const structure = await ensureDocumentStructure();
+    const opaqueName = `${KeyronCrypto.randomId()}.kdoc`;
+    const metadata = {
+      name: opaqueName,
+      mimeType: 'application/octet-stream',
+      parents: [structure.objects.id],
+      appProperties: {
+        keyronRole: 'document-object',
+        keyronVersion: '1',
+        keyronDocument: String(documentId || '').slice(0, 180),
+        keyronOperation: String(operationId || '').slice(0, 180)
+      }
+    };
+    const sessionUrl = await initiateDocumentUpload(encryptedBlob, metadata);
+    let offset = 0;
+    let attempts = 0;
+    while (offset < encryptedBlob.size) {
+      if (signal?.aborted) throw new Error('DOCUMENT_OPERATION_ABORTED');
+      const endExclusive = Math.min(encryptedBlob.size, offset + RESUMABLE_CHUNK_BYTES);
+      const chunk = encryptedBlob.slice(offset, endExclusive, 'application/octet-stream');
+      try {
+        const response = await rawUploadFetch(sessionUrl, {
+          body: chunk,
+          start: offset,
+          end: endExclusive - 1,
+          total: encryptedBlob.size,
+          signal
+        });
+        if (response.status === 308) {
+          offset = Math.max(endExclusive, uploadedOffset(response));
+          attempts = 0;
+          onProgress?.({ stage: 'uploading', loaded: offset, total: encryptedBlob.size, percent: Math.round((offset / encryptedBlob.size) * 100) });
+          continue;
+        }
+        if (response.ok) {
+          const file = await response.json();
+          onProgress?.({ stage: 'uploading', loaded: encryptedBlob.size, total: encryptedBlob.size, percent: 100 });
+          return file;
+        }
+        if (response.status === 401) {
+          accessToken = null;
+          tokenExpiresAt = 0;
+        }
+        if (![408, 429, 500, 502, 503, 504].includes(response.status)) throw new Error(`DRIVE_DOCUMENT_UPLOAD_${response.status}`);
+        throw new Error(`DRIVE_DOCUMENT_UPLOAD_TRANSIENT_${response.status}`);
+      } catch (error) {
+        if (signal?.aborted || error?.message === 'DOCUMENT_OPERATION_ABORTED') throw error;
+        attempts += 1;
+        if (attempts > 4) throw error;
+        await sleep([450, 1100, 2600, 5200][attempts - 1] || 6000);
+        const status = await queryDocumentUploadOffset(sessionUrl, encryptedBlob.size, signal).catch(() => null);
+        if (status?.complete) return status.file;
+        if (status && Number.isFinite(status.offset)) offset = status.offset;
+      }
+    }
+    const finalStatus = await queryDocumentUploadOffset(sessionUrl, encryptedBlob.size, signal);
+    if (finalStatus.complete) return finalStatus.file;
+    throw new Error('DRIVE_DOCUMENT_UPLOAD_INCOMPLETE');
+  }
+
+  async function downloadDocumentObject(fileId, { signal, onProgress } = {}) {
+    const response = await apiFetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media`, { cache: 'no-store', signal }, { timeoutMs: 30000 });
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > MAX_DOCUMENT_BYTES) throw new Error('DRIVE_DOCUMENT_TOO_LARGE');
+    if (!response.body?.getReader) {
+      const blob = await response.blob();
+      if (blob.size > MAX_DOCUMENT_BYTES) throw new Error('DRIVE_DOCUMENT_TOO_LARGE');
+      return blob.slice(0, blob.size, 'application/octet-stream');
+    }
+    const reader = response.body.getReader();
+    const parts = [];
+    let loaded = 0;
+    while (true) {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => null);
+        throw new Error('DOCUMENT_OPERATION_ABORTED');
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      loaded += value.byteLength;
+      if (loaded > MAX_DOCUMENT_BYTES) {
+        await reader.cancel().catch(() => null);
+        throw new Error('DRIVE_DOCUMENT_TOO_LARGE');
+      }
+      parts.push(value);
+      onProgress?.({ stage: 'downloading', loaded, total: declared || loaded, percent: declared ? Math.round((loaded / declared) * 100) : 0 });
+    }
+    return new Blob(parts, { type: 'application/octet-stream' });
+  }
+
+  async function getDocumentObjectMetadata(fileId) {
+    const response = await apiFetch(`${API}/files/${encodeURIComponent(fileId)}?fields=${encodeURIComponent('id,name,createdTime,modifiedTime,version,size,md5Checksum,parents,appProperties,trashed')}`, { cache: 'no-store' });
+    return response.json();
+  }
+
+  async function deleteDocumentObject(fileId) {
+    try {
+      await apiFetch(`${API}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }, { attempts: 3, timeoutMs: 30000 });
+      return true;
+    } catch (error) {
+      // Exclusão idempotente: um objeto já ausente também satisfaz o objetivo.
+      if (error?.status === 404) return true;
+      throw error;
+    }
+  }
+
   async function reloadBundle() {
     cachedRemoteBundle = null;
     cachedVaultEtag = null;
@@ -443,6 +619,8 @@ const KeyronDrive = (() => {
   return Object.freeze({
     ROOT_NAME,
     BACKUP_FOLDER_NAME,
+    DOCUMENT_FOLDER_NAME,
+    DOCUMENT_OBJECTS_FOLDER_NAME,
     VAULT_NAME,
     init,
     connect,
@@ -453,6 +631,11 @@ const KeyronDrive = (() => {
     reloadBundle,
     saveBundle,
     createSnapshot,
-    ensureStructure
+    ensureStructure,
+    ensureDocumentStructure,
+    uploadDocumentObject,
+    downloadDocumentObject,
+    getDocumentObjectMetadata,
+    deleteDocumentObject
   });
 })();

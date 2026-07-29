@@ -1224,6 +1224,7 @@
     clearTimeout(state.hiddenLockTimer);
     state.hiddenAt = 0;
     const clipboardClear = clearOwnedClipboard();
+    KeyronDocuments.lock();
     closeAllDialogs();
 
     // Bloqueio visual e descarte das referências legíveis acontecem antes de qualquer
@@ -1348,6 +1349,7 @@
             KeyronSaveEngine.initialize(chosen);
             const chosenOperation = String(chosen?.operationId || '');
             if (chosen && chosenOperation !== previousOperation) {
+              KeyronDocuments.lock();
               state.key = null;
               state.vault = null;
               configureMasterStep('unlock');
@@ -1388,6 +1390,7 @@
       await KeyronSaveEngine.discardPending();
       await KeyronStorage.saveCurrent(remote);
       state.bundle = remote;
+      KeyronDocuments.lock();
       state.key = null;
       state.vault = null;
       state.needsInitialPush = false;
@@ -2698,7 +2701,7 @@
     return `${datePart} às ${timePart}`;
   }
 
-  const ACTIVITY_LABELS = { entry: 'Nova credencial', column: 'Nova gaveta', category: 'Nova categoria', security: 'Segurança' };
+  const ACTIVITY_LABELS = { entry: 'Nova credencial', column: 'Nova gaveta', category: 'Nova categoria', security: 'Segurança', document: 'Documento' };
 
   function renderActivity() {
     if (!el.activityList) return;
@@ -2721,6 +2724,7 @@
   }
 
   function closeAllDialogs() {
+    KeyronDocuments.closeDialogs();
     $$('dialog[open]').forEach((dialog) => dialog.close());
     document.body.classList.remove('settings-open');
   }
@@ -2898,7 +2902,7 @@
     el.breachCheckBtn.addEventListener('click', () => runBreachCheck());
     el.syncChip.addEventListener('click', reconnectOrSyncDrive);
     el.lockBtn.addEventListener('click', () => handleLockClick());
-    el.search.addEventListener('input', renderBoard);
+    el.search.addEventListener('input', () => { if (!KeyronDocuments.isActive()) renderBoard(); });
     el.filterStrip.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-category-id]');
       if (!button) return;
@@ -3126,6 +3130,7 @@
         clearTimeout(state.autoLockTimer);
         clearTimeout(state.clipboardTimer);
         clearTimeout(state.hiddenLockTimer);
+        KeyronDocuments.lock();
         state.key = null;
         state.vault = null;
         scrubSensitiveUi();
@@ -3145,13 +3150,22 @@
     window.addEventListener('resize', () => {
       clearTimeout(boardResizeTimer);
       boardResizeTimer = setTimeout(() => {
-        if (state.vault && !el.appScreen.hidden) renderBoard();
+        if (state.vault && !el.appScreen.hidden && !KeyronDocuments.isActive()) renderBoard();
       }, 180);
     });
   }
 
   async function init() {
     bindEvents();
+    KeyronDocuments.init({
+      getVault: () => state.vault,
+      getBundle: () => state.bundle,
+      persistVault,
+      renderVault: renderAll,
+      toast,
+      askConfirm,
+      isDriveConnected: () => Boolean(state.googleVerified && KeyronDrive.isConnected())
+    });
     setPasswordVisibility(el.masterPassword, el.toggleMaster, false);
     setPasswordVisibility(el.fPassword, el.togglePassword, false);
     setPasswordVisibility(el.cpCurrent, el.cpToggleCurrent, false);
@@ -3193,7 +3207,7 @@
     if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r5', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r6', { updateViaCache: 'none' })
         .then((registration) => registration.update().catch(() => null))
         .catch((error) => console.warn('Service Worker:', error));
     }

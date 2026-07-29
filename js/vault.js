@@ -6,15 +6,23 @@ const KeyronVault = (() => {
   const DEFAULT_CATEGORIES = [
     ['Banco', '#2f8cff'], ['Streaming', '#a678ff'], ['Jogo', '#42c7b8'], ['Rede social', '#ff6f91'], ['E-mail', '#f4b95e'], ['Trabalho', '#7aa7ff'], ['Outro', '#8f9caf']
   ];
+  const DEFAULT_DOCUMENT_CATEGORIES = [
+    ['Pessoais', '◈'], ['Identidade', '▣'], ['Bancos', '◇'], ['Imóveis', '⌂'], ['Veículos', '◆'],
+    ['Contratos', '≣'], ['Comprovantes', '✓'], ['Notas fiscais', '▤'], ['Trabalho', '◉'], ['Outros', '✦']
+  ];
 
   const now = () => new Date().toISOString();
   const id = () => KeyronCrypto.randomId();
   const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
-  const ACTIVITY_TYPES = new Set(['entry', 'column', 'category', 'security']);
+  const ACTIVITY_TYPES = new Set(['entry', 'column', 'category', 'security', 'document']);
   const ACTIVITY_MAX = 200;
   const MAX_COLUMNS = 100;
   const MAX_CATEGORIES = 200;
   const MAX_ENTRIES = 10000;
+  const MAX_DOCUMENTS = 10000;
+  const MAX_DOCUMENT_CATEGORIES = 200;
+  const MAX_DOCUMENT_TAGS = 20;
+  const MAX_DOCUMENT_TOMBSTONES = 20000;
   const MAX_LOGO_BYTES = 4 * 1024 * 1024;
   const MAX_LOGO_DATA_URL_CHARS = 6 * 1024 * 1024;
   const UNCATEGORIZED = '__uncategorized__';
@@ -48,7 +56,7 @@ const KeyronVault = (() => {
     const createdAt = now();
     return {
       id: id(),
-      version: 3,
+      version: 4,
       createdAt,
       updatedAt: createdAt,
       columns,
@@ -56,12 +64,129 @@ const KeyronVault = (() => {
       entries: [],
       activity: [],
       securityAudit: { lastBreachCheckAt: null, results: [] },
+      documents: emptyDocuments(),
       preferences: {
         autoLockMinutes: 5,
         clipboardClearSeconds: 20,
         boardColumns: 'auto',
         breachCheckWeekly: true
       }
+    };
+  }
+
+
+
+  function emptyDocuments() {
+    return {
+      version: 1,
+      rootKey: null,
+      categories: DEFAULT_DOCUMENT_CATEGORIES.map(([name, icon], order) => ({ id: id(), name, icon, order })),
+      items: [],
+      tombstones: [],
+      preferences: { view: 'grid', showMiniatures: true },
+      updatedAt: now()
+    };
+  }
+
+  function normalizeWrappedDocumentKey(value) {
+    if (!value || typeof value !== 'object') return null;
+    const iv = clean(value.iv, 64);
+    const data = clean(value.data, 256);
+    if (!/^[A-Za-z0-9+/]{16}$/.test(iv)) return null;
+    if (!/^[A-Za-z0-9+/]{64}$/.test(data)) return null;
+    return { iv, data, algorithm: 'AES-256-GCM', version: 1 };
+  }
+
+  function normalizeDocumentItem(item, categoryIds, seenIds) {
+    const documentId = uniqueId(item?.id, seenIds);
+    const detectedMime = clean(item?.detectedMime, 120) || 'application/octet-stream';
+    const sensitivity = ['normal', 'sensitive', 'very-sensitive'].includes(item?.sensitivity) ? item.sensitivity : 'sensitive';
+    const status = ['ready', 'pending', 'error', 'deleting'].includes(item?.status) ? item.status : 'ready';
+    const originalBytes = Math.max(0, Math.min(250 * 1024 * 1024, Number(item?.originalBytes) || 0));
+    const cipherBytes = Math.max(0, Math.min(270 * 1024 * 1024, Number(item?.cipherBytes) || 0));
+    const deletedAt = item?.deletedAt ? validDate(item.deletedAt) : null;
+    const retentionUntil = item?.retentionUntil ? validDate(item.retentionUntil) : null;
+    const wrappedKey = normalizeWrappedDocumentKey(item?.wrappedKey);
+    return {
+      id: documentId,
+      objectId: clean(item?.objectId, 220),
+      objectVersion: clean(item?.objectVersion, 80),
+      operationId: clean(item?.operationId, 180),
+      formatVersion: Number(item?.formatVersion) === 1 ? 1 : 1,
+      wrappedKey,
+      name: clean(item?.name, 200) || 'Documento',
+      detectedMime,
+      originalExtension: clean(item?.originalExtension, 20).toLowerCase(),
+      originalBytes,
+      cipherBytes,
+      categoryId: categoryIds.has(item?.categoryId) ? item.categoryId : null,
+      tags: Array.isArray(item?.tags) ? [...new Set(item.tags.map((tag) => clean(tag, 40)).filter(Boolean))].slice(0, MAX_DOCUMENT_TAGS) : [],
+      note: clean(item?.note, 2000),
+      favorite: Boolean(item?.favorite),
+      sensitivity,
+      status,
+      integrity: item?.integrity === 'AES-256-GCM-CHUNKED' ? item.integrity : 'AES-256-GCM-CHUNKED',
+      previewKind: ['pdf', 'image', 'generic'].includes(item?.previewKind) ? item.previewKind : 'generic',
+      offlineAvailable: Boolean(item?.offlineAvailable),
+      createdAt: validDate(item?.createdAt),
+      updatedAt: validDate(item?.updatedAt),
+      importedAt: validDate(item?.importedAt),
+      lastOpenedAt: item?.lastOpenedAt ? validDate(item.lastOpenedAt) : null,
+      deletedAt,
+      retentionUntil
+    };
+  }
+
+  function normalizeDocumentTombstone(value, seenIds) {
+    if (!value || typeof value !== 'object') return null;
+    const idValue = clean(value.id, 160);
+    if (!idValue || seenIds.has(idValue)) return null;
+    seenIds.add(idValue);
+    const objectId = clean(value.objectId, 220);
+    const deletedAt = validDate(value.deletedAt);
+    return {
+      id: idValue,
+      objectId,
+      operationId: clean(value.operationId, 180),
+      deletedAt,
+      retainUntil: value.retainUntil ? validDate(value.retainUntil) : null,
+      remoteDeleted: Boolean(value.remoteDeleted)
+    };
+  }
+
+  function normalizeDocuments(value) {
+    const fallback = emptyDocuments();
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+    const seenCategories = new Set();
+    const sourceCategories = Array.isArray(value.categories) && value.categories.length ? value.categories : fallback.categories;
+    const categories = sourceCategories.slice(0, MAX_DOCUMENT_CATEGORIES).map((category, index) => ({
+      id: uniqueId(category?.id, seenCategories),
+      name: clean(category?.name, 50) || `Categoria ${index + 1}`,
+      icon: clean(category?.icon, 8) || '◈',
+      order: index
+    }));
+    const categoryIds = new Set(categories.map((category) => category.id));
+    const seenItems = new Set();
+    const items = (Array.isArray(value.items) ? value.items : []).slice(0, MAX_DOCUMENTS)
+      .map((item) => normalizeDocumentItem(item, categoryIds, seenItems))
+      .filter((item) => item.wrappedKey && item.objectId && item.originalBytes > 0 && item.cipherBytes > 0);
+    const rootKey = typeof value.rootKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(value.rootKey) ? value.rootKey : null;
+    const seenTombstones = new Set();
+    const tombstones = (Array.isArray(value.tombstones) ? value.tombstones : [])
+      .slice(0, MAX_DOCUMENT_TOMBSTONES)
+      .map((entry) => normalizeDocumentTombstone(entry, seenTombstones))
+      .filter(Boolean);
+    return {
+      version: 1,
+      rootKey,
+      categories,
+      items,
+      tombstones,
+      preferences: {
+        view: value.preferences?.view === 'list' ? 'list' : 'grid',
+        showMiniatures: value.preferences?.showMiniatures !== false
+      },
+      updatedAt: validDate(value.updatedAt)
     };
   }
 
@@ -193,7 +318,7 @@ const KeyronVault = (() => {
 
       const normalized = {
         id: clean(vault.id, 160) || id(),
-        version: 3,
+        version: 4,
         createdAt: validDate(vault.createdAt),
         updatedAt: validDate(vault.updatedAt),
         columns,
@@ -201,6 +326,7 @@ const KeyronVault = (() => {
         entries,
         activity: Array.isArray(vault.activity) ? vault.activity.slice(0, ACTIVITY_MAX).map(normalizeActivity) : [],
         securityAudit: normalizeSecurityAudit(vault.securityAudit),
+        documents: normalizeDocuments(vault.documents),
         preferences: {
           autoLockMinutes,
           clipboardClearSeconds,
@@ -393,7 +519,7 @@ const KeyronVault = (() => {
   }
 
   return Object.freeze({
-    emptyVault, normalize, normalizeOrders, addEntry, updateEntry, deleteEntry,
+    emptyVault, emptyDocuments, normalizeDocuments, normalize, normalizeOrders, addEntry, updateEntry, deleteEntry,
     moveEntry, reorderEntry, addColumn, updateColumn, deleteColumn, moveColumn, reorderColumn,
     addCategory, deleteCategory, addActivity, setSecurityAudit, matches, UNCATEGORIZED
   });

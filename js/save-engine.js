@@ -251,7 +251,7 @@ const KeyronSaveEngine = (() => {
 
   async function stageBundle(bundle, reason = 'bundle-stage') {
     if (!bundle) throw new Error('SAVE_ENGINE_NO_BUNDLE');
-    // Metadados de bundles v4 fazem parte da autenticação criptográfica. Nunca os
+    // Metadados de bundles v4+ fazem parte da autenticação criptográfica. Nunca os
     // altere aqui depois que o Crypto os selou; apenas persista a cópia exata.
     KeyronCrypto.assertValidBundle(bundle, { allowLegacy: false });
     const staged = clone(bundle);

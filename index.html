@@ -9,14 +9,14 @@
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests" />
-  <link rel="manifest" href="manifest.json?v=1.0.F-r4" />
+  <link rel="manifest" href="manifest.json?v=1.0.F-r5" />
   <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Keyron" />
-  <script src="js/frame-guard.js?v=1.0.F-r4"></script>
-  <link rel="stylesheet" href="css/style.css?v=1.0.F-r4" />
+  <script src="js/frame-guard.js?v=1.0.F-r5"></script>
+  <link rel="stylesheet" href="css/style.css?v=1.0.F-r5" />
 </head>
 <body>
   <div class="ambient ambient--one" aria-hidden="true"></div>
@@ -159,8 +159,9 @@
         <div>
           <label class="btn btn--ghost btn--small" for="logo-input">Escolher logo</label>
           <input type="file" id="logo-input" accept="image/png,image/jpeg,image/webp" hidden />
+          <button type="button" id="auto-logo-btn" class="btn btn--ghost btn--small">Buscar automaticamente</button>
           <button type="button" id="remove-logo-btn" class="text-button text-button--danger" hidden>Remover</button>
-          <p>PNG, JPG ou WebP de até 4 MB. A imagem será reduzida e cifrada junto do cofre.</p>
+          <p>PNG, JPG ou WebP de até 4 MB. A imagem será reduzida e cifrada junto do cofre. "Buscar automaticamente" usa o endereço preenchido em Site para tentar encontrar o ícone do serviço.</p>
         </div>
       </div>
 
@@ -457,17 +458,17 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=1.0.F-r4"></script>
-  <script src="js/crypto.js?v=1.0.F-r4"></script>
-  <script src="js/storage.js?v=1.0.F-r4"></script>
-  <script src="js/save-engine.js?v=1.0.F-r4"></script>
-  <script src="js/vault.js?v=1.0.F-r4"></script>
-  <script src="js/generator.js?v=1.0.F-r4"></script>
-  <script src="js/breach-check.js?v=1.0.F-r4"></script>
-  <script src="js/drive.js?v=1.0.F-r4"></script>
-  <script src="js/biometric.js?v=1.0.F-r4"></script>
-  <script src="js/offline-access.js?v=1.0.F-r4"></script>
+  <script src="js/config.js?v=1.0.F-r5"></script>
+  <script src="js/crypto.js?v=1.0.F-r5"></script>
+  <script src="js/storage.js?v=1.0.F-r5"></script>
+  <script src="js/save-engine.js?v=1.0.F-r5"></script>
+  <script src="js/vault.js?v=1.0.F-r5"></script>
+  <script src="js/generator.js?v=1.0.F-r5"></script>
+  <script src="js/breach-check.js?v=1.0.F-r5"></script>
+  <script src="js/drive.js?v=1.0.F-r5"></script>
+  <script src="js/biometric.js?v=1.0.F-r5"></script>
+  <script src="js/offline-access.js?v=1.0.F-r5"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/app.js?v=1.0.F-r4"></script>
+  <script src="js/app.js?v=1.0.F-r5"></script>
 </body>
 </html>

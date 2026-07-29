@@ -316,10 +316,13 @@ const KeyronCrypto = (() => {
   }
 
   async function verifyIntegrity(key, bundle) {
-    if (Number(bundle.formatVersion) < 4) return true;
+    const version = Number(bundle.formatVersion);
+    if (version < 4) return true;
     let actual;
     try {
-      actual = await decrypt(key, bundle.integrity, `integrity:${bundle.vaultId}`, FORMAT_VERSION);
+      // The integrity AAD belongs to the version stored in the bundle.
+      // Using the current version here would reject valid v4 vaults in v5.
+      actual = await decrypt(key, bundle.integrity, `integrity:${bundle.vaultId}`, version);
     } catch {
       fail('INVALID_BUNDLE_INTEGRITY');
     }

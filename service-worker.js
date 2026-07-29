@@ -1,4 +1,4 @@
-const CACHE_NAME = 'keyron-shell-v1.0.F-r6';
+const CACHE_NAME = 'keyron-shell-v1.0.F-r7-compat';
 const CSP = "default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests";
 const SHELL = [
   './',
@@ -6,7 +6,7 @@ const SHELL = [
   './css/style.css?v=1.0.F-r6',
   './js/frame-guard.js?v=1.0.F-r6',
   './js/config.js?v=1.0.F-r6',
-  './js/crypto.js?v=1.0.F-r6',
+  './js/crypto.js?v=1.0.F-r7-compat',
   './js/storage.js?v=1.0.F-r6',
   './js/save-engine.js?v=1.0.F-r6',
   './js/documents-crypto.js?v=1.0.F-docs-r1',

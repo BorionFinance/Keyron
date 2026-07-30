@@ -4,6 +4,7 @@ const KeyronDocuments = (() => {
 
   const RETENTION_DAYS = 30;
   const REAUTH_WINDOW_MS = 5 * 60 * 1000;
+  const EXTERNAL_PDF_URL_LIFETIME_MS = 10 * 60 * 1000;
   const state = {
     deps: null,
     active: false,
@@ -725,6 +726,113 @@ const KeyronDocuments = (() => {
     el.viewerMeta?.replaceChildren();
   }
 
+  function requiresExternalPdfViewer() {
+    const ua = String(navigator.userAgent || '');
+    const mobileBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const coarsePointer = window.matchMedia?.('(pointer: coarse)')?.matches === true;
+    const compactScreen = Math.min(Number(screen?.width || 9999), Number(screen?.height || 9999)) <= 1024;
+    return mobileBrowser || (coarsePointer && compactScreen);
+  }
+
+  function reservePdfViewerWindow(item) {
+    let popup = null;
+    try { popup = window.open('about:blank', '_blank'); } catch { popup = null; }
+    if (!popup) return null;
+    try {
+      popup.document.title = 'Keyron — abrindo PDF';
+      popup.document.documentElement.lang = 'pt-BR';
+      popup.document.body.replaceChildren();
+      popup.document.body.style.cssText = 'margin:0;min-height:100vh;display:grid;place-items:center;background:#070b12;color:#edf5ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;box-sizing:border-box;text-align:center';
+      const wrap = popup.document.createElement('main');
+      const brand = popup.document.createElement('strong');
+      brand.textContent = 'KEYRON';
+      brand.style.cssText = 'display:block;letter-spacing:.18em;font-size:20px;margin-bottom:14px';
+      const title = popup.document.createElement('p');
+      title.textContent = `Abrindo “${item.name}” com segurança…`;
+      title.style.cssText = 'margin:0;color:#9fb0c4;font-size:14px;line-height:1.6';
+      wrap.append(brand, title);
+      popup.document.body.appendChild(wrap);
+      popup.opener = null;
+    } catch {
+      // A janela já foi reservada pelo gesto do usuário; a navegação ainda pode prosseguir.
+    }
+    return popup;
+  }
+
+  function closeReservedPdfWindow(popup) {
+    if (!popup) return;
+    try { if (!popup.closed) popup.close(); } catch { /* sem ação */ }
+  }
+
+  function scheduleExternalPdfUrlCleanup(url) {
+    window.setTimeout(() => {
+      try { URL.revokeObjectURL(url); } catch { /* sem ação */ }
+    }, EXTERNAL_PDF_URL_LIFETIME_MS);
+  }
+
+  function openPdfInDeviceViewer(url, reservedWindow = null, { allowSameWindowFallback = false } = {}) {
+    if (!url) return false;
+    if (reservedWindow) {
+      try {
+        if (!reservedWindow.closed) {
+          reservedWindow.location.replace(url);
+          return true;
+        }
+      } catch { /* tenta abrir uma nova janela abaixo */ }
+    }
+    let popup = null;
+    try { popup = window.open(url, '_blank'); } catch { popup = null; }
+    if (popup) {
+      try { popup.opener = null; } catch { /* sem ação */ }
+      return true;
+    }
+    if (allowSameWindowFallback) {
+      try {
+        window.location.assign(url);
+        return true;
+      } catch { /* sem ação */ }
+    }
+    return false;
+  }
+
+  function renderMobilePdfFallback(item) {
+    const message = document.createElement('div');
+    message.className = 'document-viewer-mobile-pdf';
+    const icon = document.createElement('span');
+    icon.textContent = 'PDF';
+    const title = document.createElement('strong');
+    title.textContent = 'Abrir no visualizador do aparelho';
+    const detail = document.createElement('p');
+    detail.textContent = 'Este navegador móvel bloqueia PDFs dentro da janela do aplicativo. O arquivo continuará vindo da memória local do Keyron, sem usar uma URL pública do Drive.';
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'btn btn--primary';
+    openButton.textContent = 'Abrir PDF';
+    openButton.addEventListener('click', () => {
+      const url = state.currentObjectUrl;
+      if (!url) return;
+      const opened = openPdfInDeviceViewer(url, null, { allowSameWindowFallback: true });
+      if (!opened) {
+        state.deps.toast?.('O navegador não conseguiu abrir o visualizador de PDF.', 'error');
+        return;
+      }
+      state.currentObjectUrl = null;
+      scheduleExternalPdfUrlCleanup(url);
+      if (el.viewerDialog.open) el.viewerDialog.close();
+    });
+    const security = document.createElement('small');
+    security.textContent = 'Ao terminar, feche a aba do PDF para remover a visualização aberta da tela do aparelho.';
+    message.append(icon, title, detail, openButton, security);
+    el.viewerStage.appendChild(message);
+  }
+
+  function recordDocumentOpened(item) {
+    item.lastOpenedAt = new Date().toISOString();
+    item.updatedAt = item.lastOpenedAt;
+    state.deps.persistVault({ render: false, reason: 'document-open' }).catch(() => null);
+    render();
+  }
+
   async function validatePdfPreview(blob) {
     if (!(blob instanceof Blob) || blob.size < 5) {
       throw new Error('DOCUMENT_PREVIEW_TYPE_MISMATCH');
@@ -780,9 +888,15 @@ const KeyronDocuments = (() => {
     return requestReauthentication(reason);
   }
 
-  async function openItem(item) {
-    if (!(await ensureSensitiveAccess(item, 'abrir'))) return;
-    if (state.operation) return;
+  async function openItem(item, { reservedPdfWindow = null } = {}) {
+    if (!(await ensureSensitiveAccess(item, 'abrir'))) {
+      closeReservedPdfWindow(reservedPdfWindow);
+      return;
+    }
+    if (state.operation) {
+      closeReservedPdfWindow(reservedPdfWindow);
+      return;
+    }
     state.operation = new AbortController();
     cleanupViewer();
     setProgress(true, item.name, 'Buscando a cópia cifrada…', 0);
@@ -799,13 +913,29 @@ const KeyronDocuments = (() => {
         await validatePdfPreview(plain);
         if (plain.type !== 'application/pdf') plain = new Blob([plain], { type: 'application/pdf' });
       }
+
+      const objectUrl = URL.createObjectURL(plain);
+      if (item.previewKind === 'pdf' && requiresExternalPdfViewer()) {
+        const openedExternally = openPdfInDeviceViewer(objectUrl, reservedPdfWindow);
+        if (openedExternally) {
+          reservedPdfWindow = null;
+          scheduleExternalPdfUrlCleanup(objectUrl);
+          plain = null;
+          recordDocumentOpened(item);
+          state.deps.toast?.('PDF aberto no visualizador seguro do aparelho.', 'success', 3600);
+          return;
+        }
+      }
+
+      closeReservedPdfWindow(reservedPdfWindow);
+      reservedPdfWindow = null;
       state.currentPlainBlob = plain;
-      state.currentObjectUrl = URL.createObjectURL(plain);
+      state.currentObjectUrl = objectUrl;
       state.currentItemId = item.id;
       el.viewerTitle.textContent = item.name;
       el.viewerType.textContent = `${typeLabel(item)} · ${sensitivityLabel(item.sensitivity)}`;
       el.viewerFavorite.textContent = item.favorite ? '★' : '☆';
-      el.viewerPrint.hidden = !['pdf', 'image'].includes(item.previewKind);
+      el.viewerPrint.hidden = !['pdf', 'image'].includes(item.previewKind) || (item.previewKind === 'pdf' && requiresExternalPdfViewer());
       el.viewerStage.replaceChildren();
       if (item.previewKind === 'image') {
         const image = document.createElement('img');
@@ -813,12 +943,13 @@ const KeyronDocuments = (() => {
         image.alt = item.name;
         image.className = 'document-viewer-image';
         el.viewerStage.appendChild(image);
+      } else if (item.previewKind === 'pdf' && requiresExternalPdfViewer()) {
+        renderMobilePdfFallback(item);
       } else if (item.previewKind === 'pdf') {
         const frame = document.createElement('iframe');
-        // O visualizador nativo de PDF do Chrome é uma página interna do navegador.
-        // Um iframe com sandbox bloqueia essa página e exibe “Esta página foi bloqueada
-        // pelo Chrome”. O arquivo continua vindo de um Blob local, já descriptografado
-        // somente em memória; não usamos URL do Drive nem liberamos conteúdo externo.
+        // No desktop, o Blob local pode usar o visualizador nativo. Em navegadores
+        // móveis, o PDF é aberto como navegação de nível superior para evitar o
+        // bloqueio do Chrome sem liberar URLs externas nem enfraquecer a CSP.
         frame.src = `${state.currentObjectUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
         frame.title = item.name;
         frame.className = 'document-viewer-frame';
@@ -839,13 +970,11 @@ const KeyronDocuments = (() => {
       const meta = document.createElement('p');
       meta.textContent = `${formatBytes(item.originalBytes)} · ${categoryName(item.categoryId)} · importado em ${formatDate(item.importedAt)}`;
       el.viewerMeta.appendChild(meta);
-      item.lastOpenedAt = new Date().toISOString();
-      item.updatedAt = item.lastOpenedAt;
-      state.deps.persistVault({ render: false, reason: 'document-open' }).catch(() => null);
+      recordDocumentOpened(item);
       document.body.classList.add('document-viewer-open');
       el.viewerDialog.showModal();
-      render();
     } catch (error) {
+      closeReservedPdfWindow(reservedPdfWindow);
       const messages = {
         DOCUMENT_OFFLINE_UNAVAILABLE: 'Este documento não está disponível offline. Reconecte o Google Drive.',
         DOCUMENT_AUTH_FAILED: 'A integridade do documento não pôde ser confirmada. Ele não foi aberto.',
@@ -1156,8 +1285,12 @@ const KeyronDocuments = (() => {
     const item = itemById(card.dataset.documentId);
     if (!item) return;
     const action = button.dataset.action;
-    if (action === 'open') await openItem(item);
-    else if (action === 'download') await saveItem(item);
+    if (action === 'open') {
+      const reservedPdfWindow = item.previewKind === 'pdf' && item.sensitivity === 'normal' && requiresExternalPdfViewer()
+        ? reservePdfViewerWindow(item)
+        : null;
+      await openItem(item, { reservedPdfWindow });
+    } else if (action === 'download') await saveItem(item);
     else if (action === 'details') openDetails(item);
     else if (action === 'restore') await restoreItem(item);
     else if (action === 'destroy') await destroyItem(item);

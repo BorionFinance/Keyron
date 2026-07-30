@@ -1355,3 +1355,33 @@ body.document-viewer-open .ambient { visibility: hidden; }
   .document-category-create > div { grid-template-columns: 1fr; }
   .document-category-create .btn { width: 100%; }
 }
+
+/* PDF no mobile: o Chrome Android bloqueia o visualizador nativo dentro de iframe. */
+.document-viewer-mobile-pdf {
+  width: min(520px, calc(100% - 28px));
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #0a111b;
+  text-align: center;
+}
+.document-viewer-mobile-pdf > span {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,111,145,.22);
+  border-radius: 18px;
+  color: #ffb6c2;
+  background: rgba(255,111,145,.07);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.document-viewer-mobile-pdf strong { font-size: 16px; }
+.document-viewer-mobile-pdf p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.document-viewer-mobile-pdf small { color: #74869a; font-size: 9px; line-height: 1.6; }
+.document-viewer-mobile-pdf .btn { min-width: 170px; }

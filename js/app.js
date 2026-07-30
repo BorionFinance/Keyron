@@ -3207,7 +3207,7 @@
     if (!configured() && !enteredOffline) el.googleState.textContent = 'Google OAuth não configurado. Abra CONFIGURACAO.md.';
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r8-pdf-preview', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('service-worker.js?v=1.0.F-r10-pdf-mobile', { updateViaCache: 'none' })
         .then((registration) => registration.update().catch(() => null))
         .catch((error) => console.warn('Service Worker:', error));
     }

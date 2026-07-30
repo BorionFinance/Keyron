@@ -1,9 +1,9 @@
-const CACHE_NAME = 'keyron-shell-v1.0.F-r9-docs-organize';
+const CACHE_NAME = 'keyron-shell-v1.0.F-r10-pdf-mobile';
 const CSP = "default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://api.pwnedpasswords.com; img-src 'self' data: blob:; style-src 'self'; style-src-attr 'unsafe-inline'; frame-src https://accounts.google.com blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests";
 const SHELL = [
   './',
   './index.html',
-  './css/style.css?v=1.0.F-r9-docs-organize',
+  './css/style.css?v=1.0.F-r10-pdf-mobile',
   './js/frame-guard.js?v=1.0.F-r6',
   './js/config.js?v=1.0.F-r6',
   './js/crypto.js?v=1.0.F-r7-compat',
@@ -18,8 +18,8 @@ const SHELL = [
   './js/drive.js?v=1.0.F-r6',
   './js/biometric.js?v=1.0.F-r6',
   './js/offline-access.js?v=1.0.F-r6',
-  './js/documents.js?v=1.0.F-docs-r3-organize',
-  './js/app.js?v=1.0.F-r8-pdf-preview',
+  './js/documents.js?v=1.0.F-docs-r4-pdf-mobile',
+  './js/app.js?v=1.0.F-r10-pdf-mobile',
   './manifest.json?v=1.0.F-r6',
   './assets/keyron-logo.png',
   './assets/keyron-wordmark.png',
